@@ -1,6 +1,6 @@
 # ioLibrary Driver
 The ioLibrary means “Internet Offload Library” for WIZnet chip. It includes drivers and application protocols.
-The driver (ioLibrary) can be used for the application design of WIZnet TCP/IP chips as W6300, W6100, [W5500](https://docs.wiznet.io/Product/iEthernet/W5500/overview), W5300, W5200, W5100 [W5100S](https://docs.wiznet.io/Product/iEthernet/W5100S/overview).
+The driver (ioLibrary) can be used for the application design of WIZnet TCP/IP chips as [W6300](https://docs.wiznet.io/Product/Chip/Ethernet/W6300), [W6100](https://docs.wiznet.io/Product/Chip/Ethernet/W6100), [W5500](https://docs.wiznet.io/Product/Chip/Ethernet/W5500), [W5300](https://docs.wiznet.io/Product/Chip/Ethernet/W5300), [W5200](https://docs.wiznet.io/Product/Chip/Ethernet/W5200), [W5100](https://docs.wiznet.io/Product/Chip/Ethernet/W5100), [W5100S](https://docs.wiznet.io/Product/Chip/Ethernet/W5100S).
 
 ## ioLibrary
 This driver provides the Berkeley Socket type APIs.
@@ -46,20 +46,11 @@ ioLibrary
        ┃  ┣ dhcp.c
        ┃  ┗ dhcp.h
        ┣ DHCP6
-       ┃  ┣ dhcp6.c
-       ┃  ┗ dhcp6.h
+       ┃  ┣ dhcpv6.c
+       ┃  ┗ dhcpv6.h
        ┣ DNS
        ┃  ┣ dns.c
        ┃  ┗ dns.h
-       ┣ FTPClient
-       ┃  ┣ ftpc.c
-       ┃  ┣ ftpc.h
-       ┃  ┗ stdio_private.h
-       ┣ FTPServer
-       ┃  ┣ ftpd.c
-       ┃  ┣ ftpd.h
-       ┃  ┣ REAME.md
-       ┃  ┗ stdio_private.h
        ┣ httpServer
        ┃  ┣ httpParser.c
        ┃  ┣ httpParser.h
@@ -90,12 +81,10 @@ ioLibrary
 
 ```
 
-- Ethernet : SOCKET APIs like BSD & WIZCHIP([W5500](https://docs.wiznet.io/Product/iEthernet/W5500/overview) / W5300 /  W5200 / W5100 / [W5100S](https://docs.wiznet.io/Product/iEthernet/W5100S/overview)) Driver
+- Ethernet : SOCKET APIs like BSD & WIZCHIP([W6300](https://docs.wiznet.io/Product/Chip/Ethernet/W6300) / [W6100](https://docs.wiznet.io/Product/Chip/Ethernet/W6100) / [W5500](https://docs.wiznet.io/Product/Chip/Ethernet/W5500) / [W5300](https://docs.wiznet.io/Product/Chip/Ethernet/W5300) / [W5200](https://docs.wiznet.io/Product/Chip/Ethernet/W5200) / [W5100](https://docs.wiznet.io/Product/Chip/Ethernet/W5100) / [W5100S](https://docs.wiznet.io/Product/Chip/Ethernet/W5100S)) Driver
 - Internet :
   - DHCP client
   - DNS client
-  - FTP client
-  - FTP server
   - SNMP agent/trap
   - SNTP client
   - TFTP client
