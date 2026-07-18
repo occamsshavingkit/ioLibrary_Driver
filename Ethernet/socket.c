@@ -1244,7 +1244,10 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
         }
 #endif
     } else {
-        sock_pack_info[sn] = PACK_COMPLETED;
+        /* Preserve PACK_FIRST for zero-length UDP datagrams: per
+           socket.h:596-599, PACK_FIRST + zero return = valid empty
+           datagram. PACK_COMPLETED==0, so |= is a no-op. */
+        sock_pack_info[sn] |= PACK_COMPLETED;
     }
 #if _WIZCHIP_ == 5300
     pack_len = len;
