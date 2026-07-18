@@ -958,7 +958,7 @@ int8_t ctlnetservice(ctlnetservice_type cnstype, void* arg);
     @ingroup extra_functions
     @brief Reset WIZCHIP by softly.
 */
-void   wizchip_sw_reset(void);
+int8_t wizchip_sw_reset(void);
 
 /**
     @ingroup extra_functions
