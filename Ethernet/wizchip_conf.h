@@ -365,6 +365,12 @@ typedef struct __WIZCHIP {
     uint8_t   id[8];                 ///< @b WIZCHIP ID such as @b 5100, @b 5100S, @b 5200, @b 5500, and so on.
     /**
         The set of critical section callback func.
+        @warning Do NOT combine global interrupt masking with DMA-driven SPI
+        callbacks. If `_enter` masks interrupts and the SPI callback waits on
+        an interrupt-driven DMA completion, deadlock occurs. Prefer task-only
+        driver usage or a priority-inheritance SPI-bus mutex instead of global
+        interrupt masking. Full-payload transfers (up to 16 KiB at 10 MHz SPI)
+        hold interrupts masked for over 13 ms.
     */
     struct _CRIS {
         void (*_enter)  (void);       ///< crtical section enter
