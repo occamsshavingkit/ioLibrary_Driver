@@ -1011,6 +1011,11 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
 #endif
     //D20150601 : Move it to bottom
     // sock_pack_info[sn] = PACK_COMPLETED;
+#ifndef IPV6_AVAILABLE
+    if (addr == 0 || port == 0) {
+        return SOCKERR_ARG;
+    }
+#endif
     switch (mr & 0x07) {
     case Sn_MR_UDP4 :
     case Sn_MR_UDP6:
