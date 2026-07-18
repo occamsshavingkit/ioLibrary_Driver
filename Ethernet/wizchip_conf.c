@@ -1472,6 +1472,11 @@ int8_t wizchip_setnetmode(netmode_type netmode) {
     }
 #endif
     tmp = getMR();
+#if _WIZCHIP_ != W5500
+    tmp &= ~(NM_WAKEONLAN | NM_PPPOE | NM_PINGBLOCK);
+#else
+    tmp &= ~(NM_WAKEONLAN | NM_PPPOE | NM_PINGBLOCK | NM_FORCEARP);
+#endif
     tmp |= (uint8_t)netmode;
     setMR(tmp);
     return 0;
