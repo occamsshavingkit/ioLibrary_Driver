@@ -193,8 +193,8 @@ int32_t loopback_tcpc(uint8_t sn, uint8_t* buf, uint8_t* destip, uint16_t destpo
 int32_t loopback_udps(uint8_t sn, uint8_t* buf, uint16_t port) {
     int32_t  ret;
     uint16_t size, sentsize;
-    uint8_t  destip[4];
-    uint16_t destport;
+    static uint8_t  destip[4];
+    static uint16_t destport;
 
     switch (getSn_SR(sn)) {
     case SOCK_UDP :

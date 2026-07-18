@@ -7,7 +7,7 @@
 int32_t multicast_loopback(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint16_t multicast_port) {
     int32_t  ret;
     uint16_t size, sentsize;
-    uint8_t destip[4];
+    static uint8_t destip[4];
     uint16_t destport, port = 3000;
 #if 1
     // 20231019 taylor
@@ -85,8 +85,8 @@ int32_t multicast_loopback(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint
 int32_t multicast_recv(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint16_t multicast_port) {
     int32_t  ret;
     uint16_t size, port = 3000;
-    uint8_t destip[4];
-    uint16_t destport;
+    static uint8_t destip[4];
+    static uint16_t destport;
 #if 1
     // 20231019 taylor
     uint8_t addr_len;
