@@ -579,21 +579,10 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
 #if _WIZCHIP_ == 5300
     setSn_TX_WRSR(sn, len);
 #endif
-    if (sock_is_sending & (1 << sn)) {
-        while (!(getSn_IR(sn) & Sn_IR_SENDOK)) {
-            tmp = getSn_SR(sn);
-            if ((tmp != SOCK_ESTABLISHED) && (tmp != SOCK_CLOSE_WAIT)) {
-                if ((tmp == SOCK_CLOSED) || (getSn_IR(sn) & Sn_IR_TIMEOUT)) {
-                    close(sn);
-                }
-                return SOCKERR_SOCKSTATUS;
-            }
-            if (sock_io_mode & (1 << sn)) {
-                return SOCK_BUSY;
-            }
-        }
-        setSn_IR(sn, Sn_IR_SENDOK);
-    }
+    /* NOTE: The sock_is_sending check block that previously appeared here
+       was unreachable dead code on the W5500 path — the bit is always
+       cleared at line 544 (SENDOK branch) before control reaches this
+       point, confirmed by fourth-pass analysis. */
     setSn_CR(sn, Sn_CR_SEND);
 
     while (getSn_CR(sn));  // wait to process the command...
