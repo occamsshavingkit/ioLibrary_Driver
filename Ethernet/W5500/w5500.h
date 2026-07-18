@@ -406,6 +406,14 @@ extern "C" {
 */
 #define VERSIONR           (_W5500_IO_BASE_ + (0x0039 << 8) + (WIZCHIP_CREG_BLOCK << 3))
 
+/** Maximum iterations for hardware polling loops before returning a deadline error.
+    @details When a W5500 polling loop exceeds this count, the call returns
+    @ref SOCKERR_DEADLINE instead of spinning indefinitely. Increase if running
+    at very high SPI clock rates; decrease for tighter watchdog budgets. */
+#ifndef _WIZCHIP_POLL_MAX_
+#define _WIZCHIP_POLL_MAX_  10000
+#endif
+
 
 //----------------------------- W5500 Socket Registers IOMAP -----------------------------
 /**

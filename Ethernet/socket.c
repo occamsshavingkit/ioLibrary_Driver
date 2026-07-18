@@ -349,7 +349,10 @@ int8_t socket(uint8_t sn, uint8_t protocol, uint16_t port, uint8_t flag) {
     //sock_pack_info[sn] = 0;
     sock_pack_info[sn] = PACK_COMPLETED;//PACK_COMPLETED //TODO::need verify:LINAN 20250421
     //
-    while (getSn_SR(sn) == SOCK_CLOSED);
+    {
+        uint32_t _poll = 0;
+        while (getSn_SR(sn) == SOCK_CLOSED && ++_poll < _WIZCHIP_POLL_MAX_);
+    }
     return (int8_t)sn;
 }
 
@@ -537,7 +540,10 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
 #if _WIZCHIP_ == 5200
             if (getSn_TX_RD(sn) != sock_next_rd[sn]) {
                 setSn_CR(sn, Sn_CR_SEND);
-                while (getSn_CR(sn));
+    {
+        uint32_t _poll = 0;
+        while (getSn_CR(sn) && ++_poll < _WIZCHIP_POLL_MAX_);
+    }
                 return SOCK_BUSY;
             }
 #endif
@@ -660,6 +666,7 @@ int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len) { //lihan
     if (sock_remained_size[sn] == 0) {
 #endif
         //
+        uint32_t _poll = 0;
         while (1) {
             recvsize = (uint16_t)getSn_RX_RSR(sn);
             tmp = getSn_SR(sn);
@@ -671,6 +678,10 @@ int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len) { //lihan
                         close(sn);
                         return SOCKERR_SOCKSTATUS;
                     }
+                    if (++_poll > _WIZCHIP_POLL_MAX_) {
+                        return SOCKERR_DEADLINE;
+                    }
+                    continue;
                 } else {
                     close(sn);
                     return SOCKERR_SOCKSTATUS;
@@ -691,6 +702,9 @@ int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len) { //lihan
                 break;
             }
 #endif
+            if (++_poll > _WIZCHIP_POLL_MAX_) {
+                return SOCKERR_DEADLINE;
+            }
         };
 #if _WIZCHIP_ == 5300
     }
@@ -890,17 +904,22 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
     setSn_CR(sn, Sn_CR_SEND);
 #endif
     /* wait to process the command... */
-    while (getSn_CR(sn));
-    while (1) {
-        tmp = getSn_IR(sn);
-        if (tmp & Sn_IR_SENDOK) {
-            setSn_IR(sn, Sn_IR_SENDOK);
-            break;
-        }
-        //M:20131104
-        //else if(tmp & Sn_IR_TIMEOUT) return SOCKERR_TIMEOUT;
-        else if (tmp & Sn_IR_TIMEOUT) {
-            setSn_IR(sn, Sn_IR_TIMEOUT);
+    {
+        uint32_t _poll = 0;
+        while (getSn_CR(sn) && ++_poll < _WIZCHIP_POLL_MAX_);
+    }
+    {
+        uint32_t _poll = 0;
+        while (1) {
+            tmp = getSn_IR(sn);
+            if (tmp & Sn_IR_SENDOK) {
+                setSn_IR(sn, Sn_IR_SENDOK);
+                break;
+            }
+            //M:20131104
+            //else if(tmp & Sn_IR_TIMEOUT) return SOCKERR_TIMEOUT;
+            else if (tmp & Sn_IR_TIMEOUT) {
+                setSn_IR(sn, Sn_IR_TIMEOUT);
             //M20150409 : Fixed the lost of sign bits by type casting.
             //len = (uint16_t)SOCKERR_TIMEOUT;
             //break;
