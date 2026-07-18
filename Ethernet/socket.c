@@ -819,6 +819,7 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
         }
     }
 #ifndef IPV6_AVAILABLE
+    if ((getSn_MR(sn) & 0x0F) != Sn_MR_MACRAW) {
     CHECK_SOCKDATA();
     //M20140501 : For avoiding fatal error on memory align mismatched
     //if(*((uint32_t*)addr) == 0) return SOCKERR_IPINVALID;
@@ -848,6 +849,7 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
 
     setSn_DIPR(sn, addr);
     setSn_DPORT(sn, port);
+    }
 #endif
 
     freesize = getSn_TxMAX(sn);
