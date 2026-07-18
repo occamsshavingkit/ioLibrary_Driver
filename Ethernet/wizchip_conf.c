@@ -482,7 +482,10 @@ int8_t ctlwizchip(ctlwizchip_type cwtype, void* arg) {
         break;
 #endif
     case CW_RESET_WIZCHIP:
-        wizchip_sw_reset();
+        {
+            int8_t ret = wizchip_sw_reset();
+            if (ret != 0) return ret;
+        }
         break;
     case CW_INIT_WIZCHIP:
         if (arg != 0) {
@@ -637,9 +640,10 @@ int8_t ctlnetwork(ctlnetwork_type cntype, void* arg) {
     return 0;
 }
 
-void wizchip_sw_reset(void) {
+int8_t wizchip_sw_reset(void) {
     uint8_t gw[4], sn[4], sip[4];
     uint8_t mac[6];
+    int8_t ret = 0;
     //teddy 240122
 #if ((_WIZCHIP_ == 6100) ||(_WIZCHIP_ == 6300))
     uint8_t gw6[16], sn6[16], lla[16], gua[16];
@@ -692,6 +696,14 @@ void wizchip_sw_reset(void) {
         NETLOCK();
     }
 #endif
+    /* Verify chip identity — VERSIONR must read 0x04 */
+    {
+        uint32_t _poll = 0;
+        do {
+            ret = (getVERSIONR() == 0x04) ? 0 : -1;
+        } while (ret != 0 && ++_poll < _WIZCHIP_POLL_MAX_);
+    }
+    return ret;
 }
 
 int8_t wizchip_init(uint8_t* txsize, uint8_t* rxsize) {
@@ -700,7 +712,8 @@ int8_t wizchip_init(uint8_t* txsize, uint8_t* rxsize) {
     int8_t j;
 #endif
     int8_t tmp = 0;
-    wizchip_sw_reset();
+    tmp = wizchip_sw_reset();
+    if (tmp != 0) return tmp;
     if (txsize) {
         tmp = 0;
         //M20150601 : For integrating with W5300
