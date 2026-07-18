@@ -837,8 +837,12 @@ intr_kind wizchip_getinterrupt(void) {
     ir = (uint8_t)(ret >> 8);
     sir = (uint8_t)ret;
 #else
-    ir  = getIR();
-    sir = getSIR();
+    {
+        uint8_t tmp3[3];
+        WIZCHIP_READ_BUF(IR, tmp3, 3);
+        ir = tmp3[0];
+        sir = tmp3[2];
+    }
 #endif
 
     //M20150601 : For Integrating with W5300
