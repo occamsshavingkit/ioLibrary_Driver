@@ -79,6 +79,7 @@ extern "C" {
 #define IINCHIP_WRITE(ADDR,VAL)           WIZCHIP_WRITE(ADDR,VAL)          ///< The defined for legacy chip driver
 #define IINCHIP_READ_BUF(ADDR,BUF,LEN)    WIZCHIP_READ_BUF(ADDR,BUF,LEN)   ///< The defined for legacy chip driver
 #define IINCHIP_WRITE_BUF(ADDR,BUF,LEN)   WIZCHIP_WRITE(ADDR,BUF,LEN)      ///< The defined for legacy chip driver
+#define IINCHIP_WRITE_BUF(addr, src, len) WIZCHIP_WRITE_BUF(addr, src, len)
 
 //////////////////////////////
 //--------------------------  defgroup ---------------------------------
