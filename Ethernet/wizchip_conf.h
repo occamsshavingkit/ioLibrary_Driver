@@ -434,6 +434,15 @@ typedef struct __WIZCHIP {
     } IF;
 } _WIZCHIP;
 
+/* @note This library assumes single-task operation. Shared socket state
+
+ * (global arrays, per-socket bitfields) is not protected against concurrent
+
+ * access. Multi-task deployments must provide external synchronization such
+
+ * as per-socket locks and a serialized SPI-bus lock. Socket APIs must not
+
+ * be called from ISR context. */
 extern _WIZCHIP  WIZCHIP;
 
 /**
