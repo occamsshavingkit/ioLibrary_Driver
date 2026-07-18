@@ -1062,11 +1062,24 @@ int8_t wizphy_setphypmode(uint8_t pmode) {
 #elif _WIZCHIP_ == W5500
 void wizphy_reset(void) {
     uint8_t tmp = getPHYCFGR();
+    uint32_t _settle;
     tmp &= PHYCFGR_RST;
     setPHYCFGR(tmp);
     tmp = getPHYCFGR();
+    /* Minimum settle delay (~200 µs calibrated for common MCU speeds;
+       integrators must adjust _WIZCHIP_PHY_SETTLE_ for their clock rate) */
+#ifndef _WIZCHIP_PHY_SETTLE_
+#define _WIZCHIP_PHY_SETTLE_ 10000
+#endif
+    _settle = _WIZCHIP_PHY_SETTLE_;
+    while (_settle--);
     tmp |= ~PHYCFGR_RST;
     setPHYCFGR(tmp);
+    /* Poll until PHY register file stabilizes */
+    _settle = _WIZCHIP_PHY_SETTLE_;
+    do {
+        tmp = getPHYCFGR();
+    } while (tmp == 0 && --_settle > 0);
 }
 
 void wizphy_setphyconf(wiz_PhyConf* phyconf) {
