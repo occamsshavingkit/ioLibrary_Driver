@@ -204,7 +204,7 @@ void wiz_send_data(uint8_t sn, uint8_t *wizdata, uint16_t len) {
     uint16_t ptr = 0;
     uint32_t addrsel = 0;
 
-    if (len == 0) {
+    if (len == 0 || wizdata == 0) {
         return;
     }
     ptr = getSn_TX_WR(sn);
@@ -222,7 +222,7 @@ void wiz_recv_data(uint8_t sn, uint8_t *wizdata, uint16_t len) {
     uint16_t ptr = 0;
     uint32_t addrsel = 0;
 
-    if (len == 0) {
+    if (len == 0 || wizdata == 0) {
         return;
     }
     ptr = getSn_RX_RD(sn);
