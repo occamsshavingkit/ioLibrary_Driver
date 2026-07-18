@@ -866,10 +866,10 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
     //}
     //
     //if(*((uint32_t*)addr) == 0) return SOCKERR_IPINVALID;
-    if ((taddr == 0) && ((getSn_MR(sn)&Sn_MR_MACRAW) != Sn_MR_MACRAW)) {
+    if ((taddr == 0) && ((tmp & Sn_MR_MACRAW) != Sn_MR_MACRAW)) {
         return SOCKERR_IPINVALID;
     }
-    if ((port  == 0) && ((getSn_MR(sn)&Sn_MR_MACRAW) != Sn_MR_MACRAW)) {
+    if ((port  == 0) && ((tmp & Sn_MR_MACRAW) != Sn_MR_MACRAW)) {
         return SOCKERR_PORTZERO;
     }
     tmp = getSn_SR(sn);
