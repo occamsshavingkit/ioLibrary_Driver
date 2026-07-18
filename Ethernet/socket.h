@@ -287,6 +287,13 @@ int8_t  close(uint8_t sn);
            @b Fail    :\n @ref SOCKERR_SOCKINIT   - Socket is not initialized \n
                           @ref SOCKERR_SOCKCLOSED - Socket closed unexpectedly.
 */
+/* @note W5500 clears Sn_CR on command acceptance while processing may
+
+ * continue. Blocking APIs wait for the relevant Sn_SR/Sn_IR transition;
+
+ * nonblocking APIs may return before hardware completion. See individual
+
+ * function documentation for acceptance vs. completion semantics. */
 int8_t  listen(uint8_t sn);
 
 //teddy 240122
