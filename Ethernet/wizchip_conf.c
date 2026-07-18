@@ -880,6 +880,18 @@ int8_t wizchip_init(uint8_t* txsize, uint8_t* rxsize) {
     return 0;
 }
 
+/*
+ * Socket interrupt ownership (AUD-012)
+ *
+ * Socket interrupt events MUST have a single software consumer:
+ *   - Prefer an ISR that snapshots Sn_IR into atomic software-pending
+ *     bits and wakes the owner task; the task performs hardware clears.
+ *   - Avoid blanket-clearing Sn_IR from ISR context while polling APIs
+ *     are consuming SENDOK/TIMEOUT, as this can remove events before
+ *     a polling API observes them.
+ *   - Polling paths must read Sn_IR once into a local variable before
+ *     testing individual bits to minimize the ISR race window.
+ */
 void wizchip_clrinterrupt(intr_kind intr) {
     uint8_t ir  = (uint8_t)intr;
     uint8_t sir = (uint8_t)((uint16_t)intr >> 8);
