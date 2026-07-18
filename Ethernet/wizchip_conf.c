@@ -309,7 +309,7 @@ void reg_wizchip_cs_cbfunc(void(*cs_sel)(void), void(*cs_desel)(void)) {
 //M20150515 : For integrating with W5300
 //void reg_wizchip_bus_cbfunc(uint8_t(*bus_rb)(uint32_t addr), void (*bus_wb)(uint32_t addr, uint8_t wb))
 void reg_wizchip_bus_cbfunc(iodata_t(*bus_rb)(uint32_t addr), void (*bus_wb)(uint32_t addr, iodata_t wb)) {
-    while (!(WIZCHIP.if_mode & _WIZCHIP_IO_MODE_BUS_));
+    if (!(WIZCHIP.if_mode & _WIZCHIP_IO_MODE_BUS_)) return;
     //M20150601 : Rename call back function for integrating with W5300
     /*
         if(!bus_rb || !bus_wb)
@@ -334,7 +334,7 @@ void reg_wizchip_bus_cbfunc(iodata_t(*bus_rb)(uint32_t addr), void (*bus_wb)(uin
 #if 1
 // 20231103 taylor
 void reg_wizchip_busbuf_cbfunc(void(*busbuf_rb)(uint32_t AddrSel, iodata_t* pBuf, int16_t len, uint8_t addrinc), void (*busbuf_wb)(uint32_t AddrSel, iodata_t* pBuf, int16_t len, uint8_t addrinc)) {
-    while (!(WIZCHIP.if_mode & _WIZCHIP_IO_MODE_BUS_));
+    if (!(WIZCHIP.if_mode & _WIZCHIP_IO_MODE_BUS_)) return;
     //M20150601 : Rename call back function for integrating with W5300
     /*
         if(!bus_rb || !bus_wb)
