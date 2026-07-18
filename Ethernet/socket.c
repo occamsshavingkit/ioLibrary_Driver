@@ -199,6 +199,7 @@ int8_t socket(uint8_t sn, uint8_t protocol, uint16_t port, uint8_t flag) {
     uint8_t taddr[16];
     uint16_t local_port = 0;
     CHECK_SOCKNUM();
+    WIZCHIP_SOCK_LOCK(sn);
     switch (protocol & 0x0F) {
 #ifdef IPV6_AVAILABLE
     case Sn_MR_TCP4 :
@@ -374,11 +375,13 @@ int8_t socket(uint8_t sn, uint8_t protocol, uint16_t port, uint8_t flag) {
         uint32_t _poll = 0;
         while (getSn_SR(sn) == SOCK_CLOSED && ++_poll < _WIZCHIP_POLL_MAX_);
     }
+    WIZCHIP_SOCK_UNLOCK(sn);
     return (int8_t)sn;
 }
 
 int8_t close(uint8_t sn) {
     CHECK_SOCKNUM();
+    WIZCHIP_SOCK_LOCK(sn);
     //A20160426 : Applied the erratum 1 of W5300
 #if   (_WIZCHIP_ == 5300)
     //M20160503 : Wrong socket parameter. s -> sn

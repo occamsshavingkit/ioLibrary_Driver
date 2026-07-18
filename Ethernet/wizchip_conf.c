@@ -67,6 +67,16 @@
 void 	  wizchip_cris_enter(void)           {}
 
 /**
+    @brief Default no-op socket lock functions.
+    @note Multi-task deployments must register real implementations
+    via reg_wizchip_lock_cbfunc().
+*/
+static void wizchip_sock_lock_default(uint8_t sn)     { (void)sn; }
+static void wizchip_sock_unlock_default(uint8_t sn)   { (void)sn; }
+static void wizchip_global_lock_default(void)          {}
+static void wizchip_global_unlock_default(void)        {}
+
+/**
     @brief Default function to disable interrupt.
     @note This function help not to access wrong address. If you do not describe this function or register any functions,
     null function is called.
@@ -285,6 +295,13 @@ _WIZCHIP  WIZCHIP = {
 
     }
 #endif
+    ,
+    {
+        wizchip_sock_lock_default,
+        wizchip_sock_unlock_default,
+        wizchip_global_lock_default,
+        wizchip_global_unlock_default
+    }
 };
 
 
@@ -445,6 +462,25 @@ void reg_wizchip_qspi_cbfunc(void (*qspi_rb)(uint8_t opcode, uint16_t addr, uint
     }
 }
 #endif
+
+/**
+    @brief Register socket and global concurrency lock callbacks.
+    @details Multi-task deployments must call this to replace the default
+    no-op implementations with real mutex/semaphore locks. Per-socket
+    locks serialize operations on one socket; the global lock protects
+    cross-socket shared state.
+*/
+void reg_wizchip_lock_cbfunc(
+    void (*sock_enter)(uint8_t sn),
+    void (*sock_exit)(uint8_t sn),
+    void (*global_enter)(void),
+    void (*global_exit)(void))
+{
+    if (sock_enter)  WIZCHIP.LOCK._sock_enter  = sock_enter;
+    if (sock_exit)   WIZCHIP.LOCK._sock_exit   = sock_exit;
+    if (global_enter) WIZCHIP.LOCK._global_enter = global_enter;
+    if (global_exit)  WIZCHIP.LOCK._global_exit = global_exit;
+}
 
 int8_t ctlwizchip(ctlwizchip_type cwtype, void* arg) {
     uint8_t* ptmp[2] = {0, 0};

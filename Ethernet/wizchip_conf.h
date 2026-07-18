@@ -432,7 +432,30 @@ typedef struct __WIZCHIP {
         // To be added
         //
     } IF;
+    /**
+        The set of socket and global concurrency lock callbacks.
+        @note Multi-task deployments must provide real implementations.
+        Defaults are no-ops safe for single-task operation. Per-socket
+        locks serialize operations on one socket; the global lock protects
+        cross-socket state (port allocator, mode bitfields).
+    */
+    struct _LOCK {
+        void (*_sock_enter)(uint8_t sn);    ///< Lock socket N
+        void (*_sock_exit)(uint8_t sn);     ///< Unlock socket N
+        void (*_global_enter)(void);        ///< Lock global state
+        void (*_global_exit)(void);         ///< Unlock global state
+    } LOCK;
 } _WIZCHIP;
+
+/*
+ * Socket concurrency lock macros.
+ * Multi-task deployments: register real lock callbacks via
+ * reg_wizchip_lock_cbfunc(). Defaults are no-ops for single-task.
+ */
+#define WIZCHIP_SOCK_LOCK(sn)      WIZCHIP.LOCK._sock_enter(sn)
+#define WIZCHIP_SOCK_UNLOCK(sn)    WIZCHIP.LOCK._sock_exit(sn)
+#define WIZCHIP_GLOBAL_LOCK()      WIZCHIP.LOCK._global_enter()
+#define WIZCHIP_GLOBAL_UNLOCK()    WIZCHIP.LOCK._global_exit()
 
 /* @note This library assumes single-task operation. Shared socket state
 
