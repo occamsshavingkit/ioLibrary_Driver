@@ -367,10 +367,20 @@ typedef struct __WIZCHIP {
         The set of critical section callback func.
         @warning Do NOT combine global interrupt masking with DMA-driven SPI
         callbacks. If `_enter` masks interrupts and the SPI callback waits on
-        an interrupt-driven DMA completion, deadlock occurs. Prefer task-only
-        driver usage or a priority-inheritance SPI-bus mutex instead of global
-        interrupt masking. Full-payload transfers (up to 16 KiB at 10 MHz SPI)
-        hold interrupts masked for over 13 ms.
+        an interrupt-driven DMA completion, deadlock occurs. Full-payload
+        transfers (up to 16 KiB at 10 MHz SPI) hold interrupts masked for over
+        13 ms.
+
+        @par Recommended implementation (replace global IRQ masking):
+        @code
+        static SemaphoreHandle_t spi_mutex;
+        void my_cris_enter(void)  { xSemaphoreTake(spi_mutex, portMAX_DELAY); }
+        void my_cris_exit(void)   { xSemaphoreGive(spi_mutex); }
+        @endcode
+        This serializes SPI access without blocking interrupts. The mutex
+        is released before the callback returns, so DMA completion ISRs
+        can run freely. For bare-metal with ISR-driven SPI, use a
+        priority-inheritance spinlock instead of masking PRIMASK.
     */
     struct _CRIS {
         void (*_enter)  (void);       ///< crtical section enter

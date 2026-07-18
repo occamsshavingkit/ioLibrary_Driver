@@ -1189,6 +1189,12 @@ extern "C" {
 
     @details It is provided to protect your shared code which are executed without distribution. \n \n
 
+    @warning Do NOT use global interrupt masking (e.g. __disable_irq()) as the
+    CRIS implementation when SPI callbacks use DMA. This deadlocks if the DMA
+    completion IRQ is masked while the callback waits for it. Prefer a bus
+    mutex/semaphore (e.g., FreeRTOS xSemaphoreTake/Give) that serializes SPI
+    access without blocking interrupts.
+
     In non-OS environment, It can be just implemented by disabling whole interrupt.\n
     In OS environment, You can replace it to critical section api supported by OS.
 
