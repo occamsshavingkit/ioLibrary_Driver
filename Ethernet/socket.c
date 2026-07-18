@@ -917,18 +917,22 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
         uint32_t _poll = 0;
         while (getSn_CR(sn) && ++_poll < _WIZCHIP_POLL_MAX_);
     }
+    if (sock_io_mode & (1 << sn)) {
+        return (int32_t)len;
+    }
     {
         uint32_t _poll = 0;
         while (1) {
             tmp = getSn_IR(sn);
-            if (tmp & Sn_IR_SENDOK) {
-                setSn_IR(sn, Sn_IR_SENDOK);
-                break;
-            }
-            //M:20131104
-            //else if(tmp & Sn_IR_TIMEOUT) return SOCKERR_TIMEOUT;
-            else if (tmp & Sn_IR_TIMEOUT) {
-                setSn_IR(sn, Sn_IR_TIMEOUT);
+        tmp = getSn_IR(sn);
+        if (tmp & Sn_IR_SENDOK) {
+            setSn_IR(sn, Sn_IR_SENDOK);
+            break;
+        }
+        //M:20131104
+        //else if(tmp & Sn_IR_TIMEOUT) return SOCKERR_TIMEOUT;
+        else if (tmp & Sn_IR_TIMEOUT) {
+            setSn_IR(sn, Sn_IR_TIMEOUT);
             //M20150409 : Fixed the lost of sign bits by type casting.
             //len = (uint16_t)SOCKERR_TIMEOUT;
             //break;
@@ -940,6 +944,7 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
             return SOCKERR_TIMEOUT;
         }
         ////////////
+    }
     }
 #if _WIZCHIP_ < 5500   //M20150401 : for WIZCHIP Errata #4, #5 (ARP errata)
     if (taddr) {
