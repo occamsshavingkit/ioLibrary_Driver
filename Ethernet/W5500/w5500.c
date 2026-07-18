@@ -240,6 +240,7 @@ void wiz_recv_data(uint8_t sn, uint8_t *wizdata, uint16_t len) {
 void wiz_recv_ignore(uint8_t sn, uint16_t len) {
     uint16_t ptr = 0;
 
+    if (len == 0) return;
     ptr = getSn_RX_RD(sn);
     ptr += len;
     setSn_RX_RD(sn, ptr);
