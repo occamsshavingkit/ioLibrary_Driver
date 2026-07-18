@@ -975,6 +975,17 @@ int8_t wizchip_init(uint8_t* txsize, uint8_t* rxsize);
     @brief Clear Interrupt of WIZCHIP.
     @param intr : @ref intr_kind value operated OR. It can type-cast to uint16_t.
 */
+/* @warning Do not blanket-clear Socket n Interrupt Register from ISR context
+
+ * while polling APIs are consuming the same events (SENDOK/TIMEOUT). An ISR
+
+ * that clears Sn_IR bits can remove the event immediately before a polling API
+
+ * observes it, causing missed events. Prefer an ISR that snapshots events into
+
+ * atomic software-pending bits and wakes the owner task; the task performs
+
+ * hardware clears. */
 void wizchip_clrinterrupt(intr_kind intr);
 
 /**
