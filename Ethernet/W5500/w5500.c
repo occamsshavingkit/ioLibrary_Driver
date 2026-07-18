@@ -245,4 +245,23 @@ void wiz_recv_ignore(uint8_t sn, uint16_t len) {
     setSn_RX_RD(sn, ptr);
 }
 
+/*
+ * Sequential VDM 16-bit helpers
+ *
+ * Replace two scalar SPI frames with one VDM burst for
+ * efficiency and atomicity. See also AUD-040, AUD-041.
+ */
+uint16_t wizchip_read16_5500(uint32_t addr) {
+    uint8_t tmp[2];
+    WIZCHIP_READ_BUF(addr, tmp, 2);
+    return ((uint16_t)tmp[0] << 8) | tmp[1];
+}
+
+void wizchip_write16_5500(uint32_t addr, uint16_t val) {
+    uint8_t tmp[2];
+    tmp[0] = (uint8_t)(val >> 8);
+    tmp[1] = (uint8_t)val;
+    WIZCHIP_WRITE_BUF(addr, tmp, 2);
+}
+
 #endif
