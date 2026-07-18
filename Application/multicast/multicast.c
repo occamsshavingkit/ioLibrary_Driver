@@ -7,10 +7,8 @@
 int32_t multicast_loopback(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint16_t multicast_port) {
     int32_t  ret;
     uint16_t size, sentsize;
-    static uint8_t destip[4];
-    uint16_t destport, port = 3000;
-#if 1
-    // 20231019 taylor
+    static static uint8_t destip[4];
+    uint16_t destport, port = multicast_port;
     uint8_t addr_len;
 #endif
 
@@ -65,8 +63,8 @@ int32_t multicast_loopback(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint
 #ifdef _MULTICAST_DEBUG_
         printf("%d:Multicast Loopback start\r\n", sn);
 #endif
-        setSn_DIPR(0, multicast_ip);
-        setSn_DPORT(0, multicast_port);
+        setSn_DIPR(sn, multicast_ip);
+        setSn_DPORT(sn, multicast_port);
         if ((ret = socket(sn, Sn_MR_UDP, port, Sn_MR_MULTI)) != sn) {
             return ret;
         }
@@ -84,9 +82,12 @@ int32_t multicast_loopback(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint
 
 int32_t multicast_recv(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint16_t multicast_port) {
     int32_t  ret;
-    uint16_t size, port = 3000;
+    uint16_t size, port = multicast_port;
     static uint8_t destip[4];
     static uint16_t destport;
+    uint16_t size, port = multicast_port;
+    static uint8_t destip[4];
+    uint16_t destport;
 #if 1
     // 20231019 taylor
     uint8_t addr_len;
