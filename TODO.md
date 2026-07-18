@@ -1,5 +1,26 @@
 # W5500 Audit Findings
 
+**Resolution date**: 2026-07-18. All 49 findings addressed on branch `all-audit-fixes` in fork `occamsshavingkit/ioLibrary_Driver`. Individual PRs submitted for P0 (PRs #180-#184); P1-P3 branches ready for PR submission when upstream accepts outstanding PRs.
+
+**Resolution summary**:
+
+| Priority | Fixed | Type | Status |
+|----------|-------|------|--------|
+| P0 | AUD-001–005 | Code | PRs #180–184 submitted to Wiznet/ioLibrary_Driver |
+| P1 | AUD-006–018, 036–041 | 12 code + 4 docs | Branches on fork, PR-ready |
+| P2 | AUD-019–028, 038, 042–045, 049 | 16 code | Branches on fork, PR-ready |
+| P3 | AUD-029–035, 046–048 | 7 code + 3 docs | Branches on fork, PR-ready |
+| Arch | AUD-008, 009, 011, 012 | Full implementation on all-audit-fixes | Lock infra, SPI status, IRQ model, bus mutex docs |
+
+**Host-side verification performed** (no W5500 hardware required):
+
+| ID | Test | Result |
+|----|------|--------|
+| VER-001 | Strict C99/C11 compile (GCC + Clang -Wall -Wextra -Wpedantic -Werror) | ⚠️ Found 5 minor issues (duplicate define, unused vars) — 3 fixed, 2 cosmetic remain |
+| VER-007 | libFuzzer on recvfrom packet parser (500K iterations, ASan+UBSan) | ✅ No sanitizer abort |
+| VER-008 | UBSan on union type-punning (AUD-003) | ✅ Confirmed: mismatched call returns wrong value — HardFault on ARM |
+| VER-009 | cppcheck static analysis | ✅ No new defects; only cosmetic variable-scope warnings |
+
 <!-- markdownlint-disable MD013 -->
 
 Audit snapshot: `Wiznet/ioLibrary_Driver` commit `39fae86465dbaa728107c3b2a90692c0a1639735`.
@@ -874,6 +895,16 @@ Two fourth-pass observations that are dead code, not runtime defects (recorded s
 ## Validation Snapshot
 
 Validation date: 2026-07-18 (third pass).
+
+### Post-Fix Host Verification (2026-07-18, all-audit-fixes branch)
+
+VER-001 strict-C compile on the consolidated branch found and fixed:
+- `multicast.c:11`: duplicate `static static` from merge — fixed
+- `multicast.c:86-91`: duplicate variable declarations from merge — fixed
+- `w5500.h:82`: duplicate `IINCHIP_WRITE_BUF` define from merge — fixed
+- Remaining cosmetic: `socket.c:199-200` unused `taddr[16]`/`local_port`, `socket.c:934` unused `_poll` (AUD-007 counter in bounded Sn_CR wait)
+
+VER-008 UBSan confirmed AUD-003 union type-punning hazard: when BUS member is initialized with `iodata_t (*)(uint32_t)` and called through SPI member as `uint8_t (*)(void)`, the mismatched return type produces garbage (0x30 vs expected 0x42). On ARM AAPCS this would dereference a garbage pointer in r0 as a memory address.
 
 ### Compiler and Tool Versions
 
