@@ -259,6 +259,18 @@ int8_t socket(uint8_t sn, uint8_t protocol, uint16_t port, uint8_t flag) {
     }
 #endif
 
+#if _WIZCHIP_ == 5500
+    /* Reject protocol-inapplicable flag bits before register writes */
+    if (flag != 0) {
+        uint8_t prot = (protocol & 0x0F);
+        if (prot == Sn_MR_TCP) {
+            if (flag & ~(SF_TCP_NODELAY | SF_IO_NONBLOCK)) return SOCKERR_SOCKFLAG;
+        } else if (prot == Sn_MR_MACRAW || prot == Sn_MR_IPRAW4) {
+            return SOCKERR_SOCKFLAG;
+        }
+    }
+#endif
+
     if (flag != 0) {
         switch (protocol) {
 
