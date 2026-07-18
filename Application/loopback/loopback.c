@@ -52,6 +52,9 @@ int32_t loopback_tcps(uint8_t sn, uint8_t* buf, uint16_t port) {
                     close(sn);
                     return ret;
                 }
+                if (ret == SOCK_BUSY) {
+                    break;
+                }
                 sentsize += ret; // Don't care SOCKERR_BUSY, because it is zero.
             }
         }
@@ -139,6 +142,7 @@ int32_t loopback_tcpc(uint8_t sn, uint8_t* buf, uint8_t* destip, uint16_t destpo
                     close(sn); // socket close
                     return ret;
                 }
+                if (ret == SOCK_BUSY) { break; }
                 sentsize += ret; // Don't care SOCKERR_BUSY, because it is zero.
             }
         }
@@ -215,6 +219,7 @@ int32_t loopback_udps(uint8_t sn, uint8_t* buf, uint16_t port) {
 #endif
                     return ret;
                 }
+                if (ret == SOCK_BUSY) { break; }
                 sentsize += ret; // Don't care SOCKERR_BUSY, because it is zero.
             }
         }
@@ -267,6 +272,7 @@ int32_t loopback_udpc(uint8_t sn, uint8_t* buf, uint8_t* destip, uint16_t destpo
 #endif
                     return ret;
                 }
+                if (ret == SOCK_BUSY) { break; }
                 sentsize += ret; // Don't care SOCKERR_BUSY, because it is zero.
             }
         }

@@ -55,6 +55,7 @@ int32_t multicast_loopback(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint
 #endif
                     return ret;
                 }
+                if (ret == SOCK_BUSY) { break; }
                 sentsize += ret; // Don't care SOCKERR_BUSY, because it is zero.
             }
         }
