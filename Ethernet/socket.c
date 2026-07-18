@@ -550,7 +550,7 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
         }
     }
 #endif
-    freesize = getSn_TxMAX(sn);
+    freesize = wizchip_txmax_cache[sn];
     if (len > freesize) {
         len = freesize;    // check size not to exceed MAX size.
     }
@@ -649,7 +649,7 @@ int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len) { //lihan
     CHECK_SOCKMODE(Sn_MR_TCP);
     CHECK_SOCKDATA();
 
-    recvsize = getSn_RxMAX(sn);
+    recvsize = wizchip_rxmax_cache[sn];
     if (recvsize < len) {
         len = recvsize;
     }
@@ -850,7 +850,7 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
     setSn_DPORT(sn, port);
 #endif
 
-    freesize = getSn_TxMAX(sn);
+    freesize = wizchip_txmax_cache[sn];
     if (len > freesize) {
         len = freesize;    // check size not to exceed MAX size.
     }
@@ -1243,10 +1243,10 @@ int8_t  ctlsocket(uint8_t sn, ctlsock_type cstype, void* arg) {
         //
         break;
     case CS_GET_MAXTXBUF:
-        *((uint16_t*)arg) = getSn_TxMAX(sn);
+        *((uint16_t*)arg) = wizchip_txmax_cache[sn];
         break;
     case CS_GET_MAXRXBUF:
-        *((uint16_t*)arg) = getSn_RxMAX(sn);
+        *((uint16_t*)arg) = wizchip_rxmax_cache[sn];
         break;
     case CS_CLR_INTERRUPT:
         if (tmp > SIK_ALL) {
