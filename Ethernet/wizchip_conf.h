@@ -76,7 +76,7 @@ extern "C" {
 
 #ifndef _WIZCHIP_
 // NOTE_LIHAN: Some sections of this code are not yet fully defined.
-#define _WIZCHIP_                      W6300   // W5100, W5100S, W5200, W5300, W5500, 6300
+#error "Define _WIZCHIP_ to your WIZnet chip (e.g., W5500) before building"
 #endif
 
 //
