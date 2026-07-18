@@ -115,11 +115,11 @@ int32_t multicast_recv(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint16_t
             }
             size = (uint16_t) ret;
 #ifdef _MULTICAST_DEBUG_
-            printf("\r\nrecv size : %d\r\n", size);
+            // printf("\r\nrecv size : %d\r\n", size);
             for (int i = 0; i < size; i++) {
-                printf("%c", buf[i]);
+                // printf("%c", buf[i]);
             }
-            printf("\r\n");
+            // printf("\r\n");
 #endif
         }
         break;
