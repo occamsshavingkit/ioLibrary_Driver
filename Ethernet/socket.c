@@ -891,6 +891,9 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
 #endif
     /* wait to process the command... */
     while (getSn_CR(sn));
+    if (sock_io_mode & (1 << sn)) {
+        return (int32_t)len;
+    }
     while (1) {
         tmp = getSn_IR(sn);
         if (tmp & Sn_IR_SENDOK) {
