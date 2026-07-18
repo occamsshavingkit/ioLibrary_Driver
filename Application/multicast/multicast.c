@@ -1,3 +1,4 @@
+#include <inttypes.h>
 #include "multicast.h"
 #include <stdio.h>
 #include "socket.h"
@@ -32,7 +33,7 @@ int32_t multicast_loopback(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint
 #endif
             if (ret <= 0) {
 #ifdef _MULTICAST_DEBUG_
-                printf("%d: recvfrom error. %ld\r\n", sn, ret);
+                printf("%d: recvfrom error. %"PRId32"\r\n", sn, ret);
 #endif
                 return ret;
             }
@@ -51,7 +52,7 @@ int32_t multicast_loopback(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint
 #endif
                 if (ret < 0) {
 #ifdef _MULTICAST_DEBUG_
-                    printf("%d: sendto error. %ld\r\n", sn, ret);
+                    printf("%d: sendto error. %"PRId32"\r\n", sn, ret);
 #endif
                     return ret;
                 }
@@ -109,7 +110,7 @@ int32_t multicast_recv(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint16_t
 #endif
             if (ret <= 0) {
 #ifdef _MULTICAST_DEBUG_
-                printf("%d: recvfrom error. %ld\r\n", sn, ret);
+                printf("%d: recvfrom error. %"PRId32"\r\n", sn, ret);
 #endif
                 return ret;
             }

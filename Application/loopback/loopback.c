@@ -1,10 +1,11 @@
+#include <inttypes.h>
 #include <stdio.h>
 #include "loopback.h"
 #include "socket.h"
 #include "wizchip_conf.h"
 
 
-#if LOOPBACK_MODE == LOOPBACK_MAIN_NOBLCOK
+#if LOOPBACK_MODE == LOOPBACK_MAIN_NOBLOCK
 
 
 static int8_t loopback_mode = 0 ;
@@ -201,7 +202,7 @@ int32_t loopback_udps(uint8_t sn, uint8_t* buf, uint16_t port) {
             ret = recvfrom(sn, buf, size, destip, (uint16_t*)&destport);
             if (ret <= 0) {
 #ifdef _LOOPBACK_DEBUG_
-                printf("%d: recvfrom error. %ld\r\n", sn, ret);
+                printf("%d: recvfrom error. %"PRId32"\r\n", sn, ret);
 #endif
                 return ret;
             }
@@ -211,7 +212,7 @@ int32_t loopback_udps(uint8_t sn, uint8_t* buf, uint16_t port) {
                 ret = sendto(sn, buf + sentsize, size - sentsize, destip, destport);
                 if (ret < 0) {
 #ifdef _LOOPBACK_DEBUG_
-                    printf("%d: sendto error. %ld\r\n", sn, ret);
+                    printf("%d: sendto error. %"PRId32"\r\n", sn, ret);
 #endif
                     return ret;
                 }
@@ -253,7 +254,7 @@ int32_t loopback_udpc(uint8_t sn, uint8_t* buf, uint8_t* destip, uint16_t destpo
             printf("recv form[%d.%d.%d.%d][%d]: %s\n", destip[0], destip[1], destip[2], destip[3], destport, buf);
             if (ret <= 0) {
 #ifdef _LOOPBACK_DEBUG_
-                printf("%d: recvfrom error. %ld\r\n", sn, ret);
+                printf("%d: recvfrom error. %"PRId32"\r\n", sn, ret);
 #endif
                 return ret;
             }
@@ -263,7 +264,7 @@ int32_t loopback_udpc(uint8_t sn, uint8_t* buf, uint8_t* destip, uint16_t destpo
                 ret = sendto(sn, buf + sentsize, size - sentsize, destip, destport);
                 if (ret < 0) {
 #ifdef _LOOPBACK_DEBUG_
-                    printf("%d: sendto error. %ld\r\n", sn, ret);
+                    printf("%d: sendto error. %"PRId32"\r\n", sn, ret);
 #endif
                     return ret;
                 }
@@ -978,7 +979,7 @@ int32_t loopback_udpc(uint8_t sn, uint8_t* buf, uint8_t* destip, uint16_t destpo
             printf("recv form[%d.%d.%d.%d][%d]: %s\n", destip[0], destip[1], destip[2], destip[3], destport, buf);
             if (ret <= 0) {
 #ifdef _LOOPBACK_DEBUG_
-                printf("%d: recvfrom error. %ld\r\n", sn, ret);
+                printf("%d: recvfrom error. %"PRId32"\r\n", sn, ret);
 #endif
                 return ret;
             }
@@ -988,7 +989,7 @@ int32_t loopback_udpc(uint8_t sn, uint8_t* buf, uint8_t* destip, uint16_t destpo
                 ret = sendto(sn, buf + sentsize, size - sentsize, destip, destport, addr_len);
                 if (ret < 0) {
 #ifdef _LOOPBACK_DEBUG_
-                    printf("%d: sendto error. %ld\r\n", sn, ret);
+                    printf("%d: sendto error. %"PRId32"\r\n", sn, ret);
 #endif
                     return ret;
                 }
