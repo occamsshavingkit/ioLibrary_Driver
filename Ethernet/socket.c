@@ -196,8 +196,10 @@ inline uint8_t inline_CheckAddrlen_W6x00(void) {
 
 int8_t socket(uint8_t sn, uint8_t protocol, uint16_t port, uint8_t flag) {
 
+#ifdef IPV6_AVAILABLE
     uint8_t taddr[16];
     uint16_t local_port = 0;
+#endif
     CHECK_SOCKNUM();
     WIZCHIP_SOCK_LOCK(sn);
     switch (protocol & 0x0F) {
@@ -801,6 +803,7 @@ int32_t sendto_W6x00(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * addr, ui
 static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * addr, uint16_t port, uint8_t addrlen) {
     uint8_t tmp = 0;
     uint8_t tcmd = Sn_CR_SEND;
+    (void)tcmd;
     uint16_t freesize = 0;
     uint32_t taddr;
 
@@ -934,8 +937,7 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
         uint32_t _poll = 0;
         while (1) {
             tmp = getSn_IR(sn);
-        tmp = getSn_IR(sn);
-        if (tmp & Sn_IR_SENDOK) {
+            if (tmp & Sn_IR_SENDOK) {
             setSn_IR(sn, Sn_IR_SENDOK);
             break;
         }
@@ -952,6 +954,9 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
             }
 #endif
             return SOCKERR_TIMEOUT;
+        }
+        if (++_poll > _WIZCHIP_POLL_MAX_) {
+            return SOCKERR_DEADLINE;
         }
         ////////////
     }
@@ -983,6 +988,7 @@ int32_t recvfrom_W6x00(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * addr, 
 }
 static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * addr, uint16_t *port, uint8_t *addrlen) { //TODO : WILL BE IMPROVED
     //M20150601 : For W5300
+    (void)addrlen;
 #if _WIZCHIP_ == 5300
     uint16_t mr;
     uint16_t mr1;
@@ -1084,7 +1090,7 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
         if (sock_remained_size[sn] == 0) {
             wiz_recv_data(sn, head, 8);
             setSn_CR(sn, Sn_CR_RECV);
-            while (getSn_CR(sn));
+            while (getSn_CR(sn)) {}
             /*
              * Optimization (AUD-033): header and payload reads
              * each call wiz_recv_data with separate RX pointer
