@@ -678,6 +678,31 @@ int8_t wizchip_init(uint8_t* txsize, uint8_t* rxsize) {
     int8_t j;
 #endif
     int8_t tmp = 0;
+    uint16_t tx_total = 0, rx_total = 0;
+
+    /* Validate buffer arrays before any hardware access */
+    if (txsize) {
+        /* Check each TX entry is a legal W5500 size (0,1,2,4,8,16 KiB) */
+        for (i = 0; i < _WIZCHIP_SOCK_NUM_; i++) {
+            if (txsize[i] != 0 && txsize[i] != 1 && txsize[i] != 2 &&
+                txsize[i] != 4 && txsize[i] != 8 && txsize[i] != 16) {
+                return -1;
+            }
+            tx_total += txsize[i];
+            if (tx_total > 16) return -1;
+        }
+    }
+    if (rxsize) {
+        for (i = 0; i < _WIZCHIP_SOCK_NUM_; i++) {
+            if (rxsize[i] != 0 && rxsize[i] != 1 && rxsize[i] != 2 &&
+                rxsize[i] != 4 && rxsize[i] != 8 && rxsize[i] != 16) {
+                return -1;
+            }
+            rx_total += rxsize[i];
+            if (rx_total > 16) return -1;
+        }
+    }
+
     wizchip_sw_reset();
     if (txsize) {
         tmp = 0;
