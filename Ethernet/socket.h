@@ -110,6 +110,7 @@ extern "C" {
 #define SOCKERR_TIMEOUT       (SOCK_ERROR - 13)    ///< Timeout occurred
 #define SOCKERR_DATALEN       (SOCK_ERROR - 14)    ///< Data length is zero or greater than buffer max size.
 #define SOCKERR_BUFFER        (SOCK_ERROR - 15)    ///< Socket buffer is not enough for data communication.
+#define SOCKERR_DEADLINE      (SOCK_ERROR - 16)    ///< Hardware polling deadline exceeded
 
 #define SOCKFATAL_PACKLEN     (SOCK_FATAL - 1)     ///< Invalid packet length. Fatal Error.
 
