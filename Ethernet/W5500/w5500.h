@@ -294,7 +294,13 @@ extern "C" {
     @brief Socket Interrupt Register(R/W)
     @details @ref SIR indicates the interrupt status of Socket.\n
     Each bit of @ref SIR be still until @ref Sn_IR is cleared by the host.\n
-    If @ref Sn_IR is not equal to x00 the n-th bit of @ref SIR is and INTn PIN is asserted until @ref SIR is x00 */
+    If @ref Sn_IR is not equal to x00 the n-th bit of @ref SIR is and INTn PIN is asserted until @ref SIR is x00
+
+    @note Event-driven scheduling: For multi-socket systems, poll @ref SIR
+    once per iteration to identify active sockets, then service only those
+    with pending events. This avoids the per-socket poll cost (up to 8
+    frames/socket for an eight-socket sweep) and maps well to the
+    single-event-owner interrupt model. See also @ref SIMR for masking. */
 #define SIR                (_W5500_IO_BASE_ + (0x0017 << 8) + (WIZCHIP_CREG_BLOCK << 3))
 
 /**
