@@ -571,7 +571,7 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
             sock_is_sending &= ~(1 << sn);
         } else if (tmp & Sn_IR_TIMEOUT) {
             close(sn);
-            return SOCKERR_TIMEOUT;
+            return SOCKERR_SOCKCLOSED;
         } else {
             return SOCK_BUSY;
         }
