@@ -2162,6 +2162,16 @@ void wiz_recv_data(uint8_t sn, uint8_t *wizdata, uint16_t len);
 */
 void wiz_recv_ignore(uint8_t sn, uint16_t len);
 
+/** @brief Read two bytes at addr in one VDM burst.
+    Replaces the two-scalar-frame 16-bit register read pattern
+    with a single sequential VDM transfer for efficiency and atomicity. */
+uint16_t wizchip_read16_5500(uint32_t addr);
+
+/** @brief Write two bytes to addr in one VDM burst.
+    Replaces the two-scalar-frame 16-bit register write pattern
+    with a single sequential VDM transfer. */
+void wizchip_write16_5500(uint32_t addr, uint16_t val);
+
 /// @cond DOXY_APPLY_CODE
 #endif
 /// @endcond
