@@ -489,12 +489,16 @@ static int8_t connect_IO_6(uint8_t sn, uint8_t * addr, uint16_t port, uint8_t ad
 }
 
 int8_t disconnect(uint8_t sn) {
+    uint8_t tmp;
     CHECK_SOCKNUM();
     CHECK_TCPMODE();
-    if (getSn_SR(sn) != SOCK_CLOSED) {
-        setSn_CR(sn, Sn_CR_DISCON);
-        /* wait to process the command... */
-        while (getSn_CR(sn));
+    tmp = getSn_SR(sn);
+    if (tmp != SOCK_CLOSED) {
+        if (tmp == SOCK_ESTABLISHED || tmp == SOCK_CLOSE_WAIT) {
+            setSn_CR(sn, Sn_CR_DISCON);
+            /* wait to process the command... */
+            while (getSn_CR(sn));
+        }
         sock_is_sending &= ~(1 << sn);
         if (sock_io_mode & (1 << sn)) {
             return SOCK_BUSY;
