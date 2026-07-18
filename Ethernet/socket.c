@@ -1132,15 +1132,6 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
             //sock_remaiend_size[sn] = (sock_remained_size[sn] << 8) + head[5];
             sock_remained_size[sn] = (sock_remained_size[sn] << 8) + head[5];
             sock_pack_info[sn] = PACK_FIRST;
-            //
-            // Need to packet length check
-            //
-            if (len < sock_remained_size[sn]) {
-                pack_len = len;
-            } else {
-                pack_len = sock_remained_size[sn];
-            }
-            wiz_recv_data(sn, buf, pack_len); // data copy.
 #else
             if (*addr == 0) {
                 return SOCKERR_ARG;
@@ -1157,6 +1148,17 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
 
 #endif
         }
+#ifndef IPV6_AVAILABLE
+        /* Progress partial IPRAW receives on every call, not just first chunk */
+        if (sock_remained_size[sn] > 0) {
+            if (len < sock_remained_size[sn]) {
+                pack_len = len;
+            } else {
+                pack_len = sock_remained_size[sn];
+            }
+            wiz_recv_data(sn, buf, pack_len);
+        }
+#endif
         break;
     default:
         wiz_recv_ignore(sn, pack_len); // data copy.
