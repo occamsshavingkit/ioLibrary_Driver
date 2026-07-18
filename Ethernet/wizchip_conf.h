@@ -407,7 +407,12 @@ typedef struct __WIZCHIP {
         } BUS;
 
         /**
-            For SPI interface IO
+            For SPI interface IO.
+            @warning SPI callbacks MUST complete synchronously before returning.
+            A callback that starts a DMA transfer and returns immediately permits
+            CS to deassert and stack-local data to expire before transfer completion.
+            All callbacks must ensure the SPI bus is idle (BSY clear) before return.
+            Future versions may add status-return variants for error propagation.
         */
         struct {
             uint8_t (*_read_byte)   (void);
