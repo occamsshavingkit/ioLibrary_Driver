@@ -1962,8 +1962,10 @@ uint16_t getSn_TX_FSR(uint8_t sn);
     @sa GetSn_TX_WR()
 */
 #define setSn_TX_WR(sn, txwr) { \
+		WIZCHIP_CRITICAL_ENTER(); \
 		WIZCHIP_WRITE(Sn_TX_WR(sn),   (uint8_t)(txwr>>8)); \
 		WIZCHIP_WRITE(WIZCHIP_OFFSET_INC(Sn_TX_WR(sn),1), (uint8_t) txwr); \
+		WIZCHIP_CRITICAL_EXIT(); \
 		}
 
 /**
@@ -1999,9 +2001,11 @@ uint16_t getSn_RX_RSR(uint8_t sn);
     @sa getSn_RX_RD()
 */
 #define setSn_RX_RD(sn, rxrd) { \
+		WIZCHIP_CRITICAL_ENTER(); \
 		WIZCHIP_WRITE(Sn_RX_RD(sn),   (uint8_t)(rxrd>>8)); \
 		WIZCHIP_WRITE(WIZCHIP_OFFSET_INC(Sn_RX_RD(sn),1), (uint8_t) rxrd); \
-	}
+		WIZCHIP_CRITICAL_EXIT(); \
+		}
 
 /**
     @ingroup Socket_register_access_function
