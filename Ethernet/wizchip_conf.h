@@ -401,7 +401,17 @@ typedef struct __WIZCHIP {
         } BUS;
 
         /**
-            For SPI interface IO
+            For SPI interface IO.
+            @warning SPI callbacks MUST complete synchronously before returning.
+            A callback that starts a DMA transfer and returns immediately permits
+            CS to deassert and stack-local data to expire before transfer completion.
+            All callbacks must ensure the SPI bus is idle (BSY clear) before return.
+
+            @note Performance: The default burst callbacks (wizchip.c:192-213) loop
+            over _read_byte/_write_byte (byte at a time). For high-throughput
+            applications, register platform-specific FIFO/DMA burst implementations
+            via reg_wizchip_spi_cbfunc() or reg_wizchip_cris_cbfunc() to avoid
+            per-byte overhead on large transfers.
         */
         struct {
             uint8_t (*_read_byte)   (void);
