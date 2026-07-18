@@ -1382,8 +1382,9 @@ int8_t getsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
     case SO_FLAG:
 #ifdef IPV6_AVAILABLE
         *(uint8_t*)arg = (getSn_MR(sn) & 0xF0) | (getSn_MR2(sn)) | ((uint8_t)(((sock_io_mode >> sn) & 0x0001) << 3));
+#else
+        *(uint8_t*)arg = (getSn_MR(sn) & 0xF0) | ((uint8_t)(((sock_io_mode >> sn) & 0x0001) << 3));
 #endif
-        *(uint8_t*)arg = getSn_MR(sn) & 0xF0;
         break;
     case SO_TTL:
         *(uint8_t*) arg = getSn_TTL(sn);
@@ -1457,7 +1458,7 @@ int8_t getsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
         break;
 #else
     case SO_REMAINSIZE:
-        if (getSn_MR(sn) & Sn_MR_TCP) {
+        if ((getSn_MR(sn) & 0x0F) == Sn_MR_TCP) {
             *(uint16_t*)arg = getSn_RX_RSR(sn);
         } else {
             *(uint16_t*)arg = sock_remained_size[sn];
@@ -1466,7 +1467,7 @@ int8_t getsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
     case SO_PACKINFO  :
         //CHECK_SOCKMODE(Sn_MR_TCP);
 #if _WIZCHIP_ != 5300
-        if ((getSn_MR(sn) == Sn_MR_TCP)) {
+        if ((getSn_MR(sn) & 0x0F) == Sn_MR_TCP) {
             return SOCKERR_SOCKMODE;
         }
 #endif
