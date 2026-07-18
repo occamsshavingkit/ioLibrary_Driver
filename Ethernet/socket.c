@@ -1037,6 +1037,12 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
             wiz_recv_data(sn, head, 8);
             setSn_CR(sn, Sn_CR_RECV);
             while (getSn_CR(sn));
+            /*
+             * Optimization (AUD-033): header and payload reads
+             * each call wiz_recv_data with separate RX pointer
+             * commit. Read pointer once, compute local offsets,
+             * publish final pointer once to save ~4 SPI frames.
+             */
             // read peer's IP address, port number & packet length
             //A20150601 : For W5300
 #if _WIZCHIP_ == 5300
