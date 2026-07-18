@@ -62,6 +62,24 @@
 #if   (_WIZCHIP_ == 5500)
 ////////////////////////////////////////////////////
 
+/*
+ * SPI error checking (AUD-009)
+ * Wrapper: call after each transfer to propagate HAL errors.
+ * Default stubs always return 0 (OK). Multi-task or DMA-based
+ * deployments must implement real callbacks.
+ */
+static uint8_t _spi_status_check(void) {
+    if (WIZCHIP.IF.SPI_STATUS._check_busy &&
+        WIZCHIP.IF.SPI_STATUS._check_busy() != 0) {
+        return 1;
+    }
+    if (WIZCHIP.IF.SPI_STATUS._get_error &&
+        WIZCHIP.IF.SPI_STATUS._get_error() != 0) {
+        return 2;
+    }
+    return 0;
+}
+
 uint8_t  WIZCHIP_READ(uint32_t AddrSel) {
     uint8_t ret;
     uint8_t spi_data[3];

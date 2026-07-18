@@ -421,6 +421,15 @@ typedef struct __WIZCHIP {
             void    (*_write_burst) (uint8_t* pBuf, uint16_t len);
         } SPI;
 
+        /** SPI bus status callbacks (AUD-009).
+            @brief Query SPI bus state: busy/timeout/overrun.
+            @note Optional: implement to propagate I/O errors to
+            socket callers. Default stubs always return OK. */
+        struct {
+            uint8_t (*_check_busy)(void);    ///< Return 1 if SPI is busy
+            uint8_t (*_get_error)(void);     ///< Return HAL_ERROR, HAL_TIMEOUT etc.
+        } SPI_STATUS;
+
         /**
             For QSPI interface IO
         */
