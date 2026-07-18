@@ -235,11 +235,15 @@ int8_t socket(uint8_t sn, uint8_t protocol, uint16_t port, uint8_t flag) {
     }
 #endif
     case Sn_MR_UDP :
+#ifdef IPV6_AVAILABLE
     case Sn_MR_UDP6 :
     case Sn_MR_UDPD :
+#endif
     case Sn_MR_MACRAW :
     case Sn_MR_IPRAW4 :
+#ifdef IPV6_AVAILABLE
     case Sn_MR_IPRAW6 :
+#endif
         break;
 #if ( _WIZCHIP_ < 5200 )
     case Sn_MR_PPPoE :
@@ -248,6 +252,11 @@ int8_t socket(uint8_t sn, uint8_t protocol, uint16_t port, uint8_t flag) {
     default :
         return SOCKERR_SOCKMODE;
     }
+#ifndef IPV6_AVAILABLE
+    if (sn != 0 && (protocol & 0x0F) == Sn_MR_MACRAW) {
+        return SOCKERR_SOCKMODE;
+    }
+#endif
     //M20150601 : For SF_TCP_ALIGN & W5300
     //if((flag & 0x06) != 0) return SOCKERR_SOCKFLAG;
     if ((flag & 0x04) != 0) {
