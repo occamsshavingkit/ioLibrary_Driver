@@ -239,6 +239,7 @@ int32_t loopback_udpc(uint8_t sn, uint8_t* buf, uint8_t* destip, uint16_t destpo
     int32_t ret;
     uint16_t size = 0, sentsize = 0;
     static uint16_t any_port = 50000;
+    if (++any_port < 1024 || any_port > 65534) any_port = 50000;
     // uint8_t* strtest = "\r\nhello world";
     // uint8_t flag = 0;
     switch (getSn_SR(sn)) {
@@ -952,6 +953,7 @@ int32_t loopback_udpc(uint8_t sn, uint8_t* buf, uint8_t* destip, uint16_t destpo
     int32_t ret;
     uint16_t size = 0, sentsize = 0;
     static uint16_t any_port = 50000;
+    if (++any_port < 1024 || any_port > 65534) any_port = 50000;
     uint8_t addr_len;
 
 
