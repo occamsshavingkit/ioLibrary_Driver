@@ -11,7 +11,6 @@ int32_t multicast_loopback(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint
     static uint8_t destip[4];
     uint16_t destport, port = multicast_port;
     uint8_t addr_len;
-#endif
 
     switch (getSn_SR(sn)) {
     case SOCK_UDP :
@@ -89,7 +88,6 @@ int32_t multicast_recv(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint16_t
 #if 1
     // 20231019 taylor
     uint8_t addr_len;
-#endif
 
     switch (getSn_SR(sn)) {
     case SOCK_UDP :
