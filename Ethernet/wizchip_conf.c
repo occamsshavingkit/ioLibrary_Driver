@@ -1154,11 +1154,11 @@ int8_t wizphy_setphypmode(uint8_t pmode) {
     wizphy_reset();
     tmp = getPHYCFGR();
     if (pmode == PHY_POWER_DOWN) {
-        if (tmp & PHYCFGR_OPMDC_PDOWN) {
+        if ((tmp & PHYCFGR_OPMDC_ALLA) == PHYCFGR_OPMDC_PDOWN) {
             return 0;
         }
     } else {
-        if (tmp & PHYCFGR_OPMDC_ALLA) {
+        if ((tmp & PHYCFGR_OPMDC_ALLA) == PHYCFGR_OPMDC_ALLA) {
             return 0;
         }
     }
