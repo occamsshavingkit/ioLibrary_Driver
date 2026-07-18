@@ -297,6 +297,11 @@ static uint8_t      _DNS6_[16];    ///< DSN server IPv6 address
 static ipconf_mode  _IPMODE_;      ///< IP configuration mode
 #endif
 
+/* Cached socket buffer sizes to avoid per-operation SPI reads.
+   Populated by wizchip_init; updated by setSn_[TR]XBUF_SIZE. */
+uint16_t wizchip_txmax_cache[_WIZCHIP_SOCK_NUM_];
+uint16_t wizchip_rxmax_cache[_WIZCHIP_SOCK_NUM_];
+
 void reg_wizchip_cris_cbfunc(void(*cris_en)(void), void(*cris_ex)(void)) {
     if (!cris_en || !cris_ex) {
         WIZCHIP.CRIS._enter = wizchip_cris_enter;
@@ -830,6 +835,11 @@ int8_t wizchip_init(uint8_t* txsize, uint8_t* rxsize) {
             setSn_RXBUF_SIZE(i, rxsize[i]);
 #endif
         }
+    }
+    /* Populate cache: read back each socket's buffer size after programming */
+    for (i = 0; i < _WIZCHIP_SOCK_NUM_; i++) {
+        wizchip_txmax_cache[i] = (uint16_t)WIZCHIP_READ(Sn_TXBUF_SIZE(i)) * 1024;
+        wizchip_rxmax_cache[i] = (uint16_t)WIZCHIP_READ(Sn_RXBUF_SIZE(i)) * 1024;
     }
     return 0;
 }

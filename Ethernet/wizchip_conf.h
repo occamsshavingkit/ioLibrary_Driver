@@ -445,6 +445,11 @@ typedef struct __WIZCHIP {
  * be called from ISR context. */
 extern _WIZCHIP  WIZCHIP;
 
+/* Cached socket buffer sizes (bytes) — populated by wizchip_init.
+   Using these avoids per-operation SPI reads of Sn_TXBUF_SIZE/Sn_RXBUF_SIZE. */
+extern uint16_t wizchip_txmax_cache[_WIZCHIP_SOCK_NUM_];
+extern uint16_t wizchip_rxmax_cache[_WIZCHIP_SOCK_NUM_];
+
 /**
     @ingroup DATA_TYPE
     WIZCHIP control type enumration used in @ref ctlwizchip().
