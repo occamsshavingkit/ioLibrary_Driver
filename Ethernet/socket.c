@@ -844,6 +844,8 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
     (void)tcmd;
     uint16_t freesize = 0;
     uint32_t taddr;
+    int32_t ret;
+    WIZCHIP_SOCK_LOCK(sn);
 
     /*
         The below codes can be omitted for optmization of speed
@@ -861,7 +863,7 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
         break;
     //   #endif
     default:
-        return SOCKERR_SOCKMODE;
+        ret = SOCKERR_SOCKMODE; goto sndto_done;
     }
     tmp = getSn_MR(sn);
     if (tmp != Sn_MR_MACRAW) {
@@ -872,22 +874,22 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
                 tcmd = Sn_CR_SEND6;
             } else
 #endif
-                return SOCKERR_SOCKMODE;
+                ret = SOCKERR_SOCKMODE; goto sndto_done;
         } else if (addrlen == 4) { // addrlen=4, Sn_MR_UDP4(0010), Sn_MR_UDPD(1110), IPRAW4(0011)
             if (tmp == Sn_MR_UDP6 || tmp == Sn_MR_IPRAW6) {
-                return SOCKERR_SOCKMODE;
+                ret = SOCKERR_SOCKMODE; goto sndto_done;
             }
             setSn_DIPR(sn, addr);
             tcmd = Sn_CR_SEND;
         } else {
-            return SOCKERR_IPINVALID;
+            ret = SOCKERR_IPINVALID; goto sndto_done;
         }
     }
     if ((tmp & 0x03) == 0x02) { // Sn_MR_UPD4(0010), Sn_MR_UDP6(1010), Sn_MR_UDPD(1110)
         if (port) {
             setSn_DPORTR(sn, port);
         } else {
-            return SOCKERR_PORTZERO;
+            ret = SOCKERR_PORTZERO; goto sndto_done;
         }
     }
 #ifndef IPV6_AVAILABLE
@@ -905,15 +907,15 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
     //
     //if(*((uint32_t*)addr) == 0) return SOCKERR_IPINVALID;
     if ((taddr == 0) && ((tmp & Sn_MR_MACRAW) != Sn_MR_MACRAW)) {
-        return SOCKERR_IPINVALID;
+        ret = SOCKERR_IPINVALID; goto sndto_done;
     }
     if ((port  == 0) && ((tmp & Sn_MR_MACRAW) != Sn_MR_MACRAW)) {
-        return SOCKERR_PORTZERO;
+        ret = SOCKERR_PORTZERO; goto sndto_done;
     }
     tmp = getSn_SR(sn);
     //#if ( _WIZCHIP_ < 5200 )
     if ((tmp != SOCK_MACRAW) && (tmp != SOCK_UDP) && (tmp != SOCK_IPRAW)) {
-        return SOCKERR_SOCKSTATUS;
+        ret = SOCKERR_SOCKSTATUS; goto sndto_done;
     }
     //#else
     //   if(tmp != SOCK_MACRAW && tmp != SOCK_UDP) return SOCKERR_SOCKSTATUS;
@@ -935,7 +937,7 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
             return SOCKERR_SOCKCLOSED;
         }
         if ((sock_io_mode & (1 << sn)) && (len > freesize)) {
-            return SOCK_BUSY;
+            ret = SOCK_BUSY; goto sndto_done;
         }
         if (len <= freesize) {
             break;
@@ -994,7 +996,7 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
             return SOCKERR_TIMEOUT;
         }
         if (++_poll > _WIZCHIP_POLL_MAX_) {
-            return SOCKERR_DEADLINE;
+            ret = SOCKERR_DEADLINE; goto sndto_done;
         }
         ////////////
     }
@@ -1005,8 +1007,11 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
     }
 #endif
     //M20150409 : Explicit Type Casting
-    //return len;
-    return (int32_t)len;
+    //ret = len;
+    ret = (int32_t)len;
+sndto_done:
+    WIZCHIP_SOCK_UNLOCK(sn);
+    return ret;
 }
 
 
