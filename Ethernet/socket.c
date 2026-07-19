@@ -1041,6 +1041,8 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
     //
     uint8_t  head[8];
     uint16_t pack_len = 0;
+    int32_t ret;
+    WIZCHIP_SOCK_LOCK(sn);
 
     /*
         The below codes can be omitted for optmization of speed
@@ -1066,18 +1068,18 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
         break;
 #endif
     default:
-        return SOCKERR_SOCKMODE;
+        ret = SOCKERR_SOCKMODE; goto rcvfr_done;
     }
     CHECK_SOCKDATA();
     if (sock_remained_size[sn] == 0) {
         while (1) {
             pack_len = getSn_RX_RSR(sn);
             if (getSn_SR(sn) == SOCK_CLOSED) {
-                return SOCKERR_SOCKCLOSED;
+                ret = SOCKERR_SOCKCLOSED; goto rcvfr_done;
             }
 #ifndef IPV6_AVAILABLE
             if ((sock_io_mode & (1 << sn)) && (pack_len == 0)) {
-                return SOCK_BUSY;
+                ret = SOCK_BUSY; goto rcvfr_done;
             }
             if (pack_len != 0) {
                 break;
@@ -1088,7 +1090,7 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
                 break;
             }
             if (sock_io_mode & (1 << sn)) {
-                return SOCK_BUSY;
+                ret = SOCK_BUSY; goto rcvfr_done;
             }
 #endif
         };
@@ -1105,7 +1107,7 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
     // sock_pack_info[sn] = PACK_COMPLETED;
 #ifndef IPV6_AVAILABLE
     if (addr == 0 || port == 0) {
-        return SOCKERR_ARG;
+        ret = SOCKERR_ARG; goto rcvfr_done;
     }
 #endif
     switch (mr & 0x07) {
@@ -1114,7 +1116,7 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
     case Sn_MR_UDPD:
 #ifdef IPV6_AVAILABLE
         if (addr == 0) {
-            return SOCKERR_ARG;
+            ret = SOCKERR_ARG; goto rcvfr_done;
         }
 
         sock_pack_info[sn] = head[0] & 0xF8;
@@ -1207,7 +1209,7 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
 #endif
             if (sock_remained_size[sn] > 1514) {
                 close(sn);
-                return SOCKFATAL_PACKLEN;
+                ret = SOCKFATAL_PACKLEN; goto rcvfr_done;
             }
             sock_pack_info[sn] = PACK_FIRST;
         }
@@ -1237,7 +1239,7 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
             sock_pack_info[sn] = PACK_FIRST;
 #else
             if (*addr == 0) {
-                return SOCKERR_ARG;
+                ret = SOCKERR_ARG; goto rcvfr_done;
             }
             sock_pack_info[sn] = head[0] & 0xF8;
             if (sock_pack_info[sn] & PACK_IPv6) {
@@ -1274,7 +1276,7 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
     if ((getSn_MR(sn) & 0x03) == 0x02) { // Sn_MR_UDP4(0010), Sn_MR_UDP6(1010), Sn_MR_UDPD(1110)
         /* Read port number of PACKET INFO in SOCKETn RX buffer */
         if (port == 0) {
-            return SOCKERR_ARG;
+            ret = SOCKERR_ARG; goto rcvfr_done;
         }
         wiz_recv_data(sn, head, 2);
         *port = (((((uint16_t)head[0])) << 8) + head[1]);
@@ -1326,7 +1328,10 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
     //M20150409 : Explicit Type Casting
     //return pack_len;
 #endif
-    return (int32_t)pack_len;
+    ret = (int32_t)pack_len;
+rcvfr_done:
+    WIZCHIP_SOCK_UNLOCK(sn);
+    return ret;
 }
 
 
