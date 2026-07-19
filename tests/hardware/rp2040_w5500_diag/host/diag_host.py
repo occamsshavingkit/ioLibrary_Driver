@@ -220,6 +220,10 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
         parsed.listen_ip,
         parsed.listen_port,
     )
+    if parsed.command == "status" and any(
+        value is not None for value in network_values
+    ):
+        parser.error("network options cannot be used with status")
     if any(value is not None for value in network_values) and not all(
         value is not None for value in network_values
     ):

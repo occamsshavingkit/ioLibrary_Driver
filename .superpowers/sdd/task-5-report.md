@@ -10,12 +10,21 @@ The implementation commit is the Task 5 commit containing this report; resolve
 its immutable SHA with `git rev-parse HEAD`. The exact SHA is also returned to
 the controller after commit creation.
 
-No firmware was flashed. HIL remains owned by the controller.
+The Task 5 implementer did not flash firmware during implementation; HIL
+remained controller-owned. The controller later appended the HIL section at the
+end of this report after the implementer handoff.
+
+This report and its artifact predate Task 9 generated provenance. The preserved
+artifact and transcript are therefore provenance-unverified and cannot satisfy
+the final provenance acceptance contract. The commands below remain a
+historical record; use `tests/hardware/rp2040_w5500_diag/README.md` for the
+current scoped, provenance-bearing build workflow.
 
 ## RED Evidence
 
 The first firmware edit added a typed handler table in `main.c` referencing all
-six required stage functions. The isolated worktree was then synchronized with:
+six required stage functions. The isolated worktree was then synchronized with
+the following historical pre-Task 9 command:
 
 ```sh
 rsync -a --delete --exclude=.git/ /home/quackdcs/W5500/.worktrees/rp2040-w5500-diagnostic/ root@192.168.2.34:/tmp/ioLibrary-driver-diag/
@@ -120,13 +129,14 @@ Test project /tmp/opencode/w5500-diag-host
 
 ## Firmware Verification
 
-Only this worktree was synchronized:
+Only this worktree was synchronized by the historical pre-Task 9 workflow:
 
 ```sh
 rsync -a --delete --exclude=.git/ /home/quackdcs/W5500/.worktrees/rp2040-w5500-diagnostic/ root@192.168.2.34:/tmp/ioLibrary-driver-diag/
 ```
 
-Exact required configure command:
+Historical configure command, before the four Task 9 provenance variables
+became mandatory:
 
 ```sh
 ssh root@192.168.2.34 "cmake -S /tmp/ioLibrary-driver-diag/tests/hardware/rp2040_w5500_diag -B /root/w5500-diag-build -DDIAG_BUILD_FIRMWARE=ON -DDIAG_EXPECT_SPI_STATUS=1 -DPICO_SDK_PATH=/usr/share/pico-sdk -DWIZNET_PICO_C_PATH=/usr/share/wiznet-pico-c -DIOLIBRARY_ROOT=/tmp/ioLibrary-driver-diag"
@@ -170,10 +180,13 @@ Final output:
 ```
 
 `arm-none-eabi-nm -u /root/w5500-diag-build/rp2040_w5500_diag.elf`
-produced no output, proving the current audited revision links with the absent
-weak registrar.
+produced no output. This proves that no unresolved strong symbol blocked the
+link; it does not prove that the weak registrar was absent. The runtime
+`callback-layout FAIL code=no-status-api` event is the evidence that the weak
+registrar resolved to null in this artifact.
 
-Source provenance is explicit in CMake:
+Source path origin was explicit in CMake even though generated build provenance
+did not exist yet:
 
 - ioLibrary: `/tmp/ioLibrary-driver-diag/Ethernet` and
   `/tmp/ioLibrary-driver-diag/Internet/DHCP` only.
@@ -182,6 +195,9 @@ Source provenance is explicit in CMake:
 - No `/root/firmware` or installed vendored Ethernet source is referenced.
 
 ## Artifact Identity
+
+This is the provenance-unverified, pre-Task 9 artifact described above. Its
+identity remains useful as historical Task 5 evidence only.
 
 ```text
 Path: /root/w5500-diag-build/rp2040_w5500_diag.uf2
@@ -216,9 +232,14 @@ DIAG protocol=1 seq=1 stage=callback-layout event=START timeout_ms=0
 DIAG protocol=1 seq=1 stage=callback-layout event=FAIL code=no-status-api
 ```
 
-HIL is intentionally not performed in this task.
+The Task 5 implementer intentionally did not perform HIL during implementation.
+The controller-owned verification appended below happened later.
 
 ## Controller HIL Verification
+
+This section was appended by the controller after the Task 5 implementation
+handoff. It records later HIL of the legacy artifact; it does not claim that the
+implementer flashed it or that Task 9 provenance metadata was present.
 
 The controller placed the board in RP2 BOOTSEL mode and flashed the reviewed
 artifact with verification enabled. The device re-enumerated as:
@@ -244,5 +265,6 @@ same deterministic `no-status-api` failure.
 During diagnosis of an incomplete pyserial display, Linux `usbmon` independently
 confirmed BOOT and the complete automatic seq=1 START/FAIL transcript crossed
 the CDC bulk-IN endpoint. The missing pyserial lines were a reader artifact,
-not firmware loss. Task 5 therefore passes its hardware acceptance gate without
-performing a W5500 transfer on the audited revision.
+not firmware loss. This satisfied the historical Task 5 hardware gate without
+performing a W5500 transfer on the audited revision, but it is not final
+provenance-bearing Task 9 acceptance evidence.

@@ -1,5 +1,11 @@
 # RP2040 W5500 Diagnostic Firmware Implementation Plan
 
+> **Implementation record:** This file preserves the workflow used to build the
+> diagnostic harness. Its unchecked boxes are historical task steps, not the
+> current implementation status. Use
+> `tests/hardware/rp2040_w5500_diag/README.md` for current provenance-bearing
+> build, synchronization, flash, and controller instructions.
+>
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a standalone RP2040 firmware and Pi controller that isolate W5500 driver failures by stage, recover from blocking calls, and produce revision-grounded transcripts through UDP and DHCP.
@@ -131,7 +137,7 @@ Use these public types in `diag_protocol.h`:
 #include <stdint.h>
 
 #define DIAG_PROTOCOL_VERSION 1u
-#define DIAG_LINE_MAX 192u
+#define DIAG_LINE_MAX 256u
 #define DIAG_STAGE_NAME_MAX 24u
 
 typedef enum {
@@ -236,7 +242,9 @@ int main(void)
 
     runner.passed_mask = (1u << DIAG_STAGE_COUNT) - 1u;
     diag_runner_prepare_repeat(&runner, DIAG_STAGE_DHCP);
-    assert((runner.passed_mask & (1u << DIAG_STAGE_CHIP_RESET)) == 0u);
+    assert((runner.passed_mask & (1u << DIAG_STAGE_DHCP)) == 0u);
+    assert((runner.passed_mask & (1u << DIAG_STAGE_UDP)) != 0u);
+    assert((runner.passed_mask & (1u << DIAG_STAGE_CHIP_RESET)) != 0u);
     assert((runner.passed_mask & (1u << DIAG_STAGE_TRANSPORT_INIT)) != 0u);
     return 0;
 }
@@ -295,7 +303,18 @@ typedef struct {
 } diag_runner_t;
 ```
 
-Set `callback-layout` timeout to `0`, primitive blocking stages to `2000`, `phy-link` to `5000`, `udp` to `5000`, and `dhcp` to `60000` as a software deadline. `socket-open` requires host network configuration. A failed prerequisite must prevent execution; a failed unrelated stage must not be silently marked complete. Add `diag_runner_prepare_repeat(diag_runner_t *, diag_stage_id_t)` with an explicit restart boundary per stage: `pointer-api` clears only itself and its successors, `udp` clears from `socket-open`, and `dhcp` clears from `chip-reset`. This forces each UDP iteration to reopen its socket and each DHCP iteration to rerun reset, version, memory initialization, and PHY link while retaining the valid callback and transport setup.
+Set `callback-layout` timeout to `0`, primitive blocking stages to `2000`,
+`phy-link` to `5000`, `udp` to `5000`, and `dhcp` to `60000` as a software
+deadline. `socket-open` requires host network configuration. A failed
+prerequisite must prevent execution; a failed unrelated stage must not be
+silently marked complete. Add
+`diag_runner_prepare_repeat(diag_runner_t *, diag_stage_id_t)` with an explicit
+restart boundary per stage: `pointer-api` clears only itself and its successors,
+`udp` clears from `socket-open`, and `dhcp` clears only itself. The DHCP handler
+is self-contained and performs chip reset, memory initialization, and bounded
+PHY preparation inside every invocation. This forces each UDP iteration to
+reopen its socket and each DHCP iteration to prepare independently without
+replaying the earlier catalog stages.
 
 - [ ] **Step 4: Run all host C tests**
 
@@ -499,19 +518,95 @@ At boot, `main` must initialize TinyUSB before any W5500 code, report build iden
 - [ ] **Step 4: Configure and cross-build the standalone UF2 on the Pi**
 
 ```bash
-rsync -a --delete --exclude=.git/ /home/quackdcs/W5500/ root@192.168.2.34:/tmp/ioLibrary-driver-diag/
-ssh root@192.168.2.34 "cmake -S /tmp/ioLibrary-driver-diag/tests/hardware/rp2040_w5500_diag -B /root/w5500-diag-build -DDIAG_BUILD_FIRMWARE=ON -DDIAG_EXPECT_SPI_STATUS=1 -DPICO_SDK_PATH=/usr/share/pico-sdk -DWIZNET_PICO_C_PATH=/usr/share/wiznet-pico-c -DIOLIBRARY_ROOT=/tmp/ioLibrary-driver-diag"
-ssh root@192.168.2.34 "cmake --build /root/w5500-diag-build --target rp2040_w5500_diag --parallel 4"
+set -euo pipefail
+repo_root=$(git rev-parse --show-toplevel)
+set -- \
+  tests/hardware/rp2040_w5500_diag \
+  Ethernet \
+  Internet/DHCP
+
+untracked=$(git -C "$repo_root" ls-files --others --exclude-standard -- "$@")
+if [ -n "$untracked" ]; then
+  printf 'Refusing unhashed untracked source files:\n%s\n' "$untracked" >&2
+  exit 1
+fi
+unexpected_ignored=$(
+  git -C "$repo_root" ls-files --others --ignored --exclude-standard -- \
+    "$@" \
+    ':(glob,exclude)**/build/**' \
+    ':(glob,exclude)**/*.log' \
+    ':(glob,exclude)**/__pycache__/**'
+)
+if [ -n "$unexpected_ignored" ]; then
+  printf 'Refusing ignored source files not excluded from rsync:\n%s\n' \
+    "$unexpected_ignored" >&2
+  exit 1
+fi
+
+git_sha=$(git -C "$repo_root" rev-parse HEAD)
+if git -C "$repo_root" diff --quiet HEAD -- "$@"; then
+  dirty=0
+else
+  diff_status=$?
+  if [ "$diff_status" -ne 1 ]; then
+    exit "$diff_status"
+  fi
+  dirty=1
+fi
+diff_sha=$(
+  git -C "$repo_root" diff --no-ext-diff --binary HEAD -- "$@" |
+    sha256sum | cut -d' ' -f1
+)
+build_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+diag_source=/tmp/rp2040-w5500-diag-src
+iolibrary_source=/tmp/ioLibrary-driver-diag
+build_dir=/tmp/rp2040-w5500-diag-build
+ssh root@192.168.2.34 \
+  "mkdir -p '$diag_source' '$iolibrary_source/Ethernet' \
+    '$iolibrary_source/Internet/DHCP'"
+rsync -a --delete \
+  --exclude='build/' --exclude='*.log' --exclude='__pycache__/' \
+  "$repo_root/tests/hardware/rp2040_w5500_diag/" \
+  "root@192.168.2.34:$diag_source/"
+rsync -a --delete \
+  --exclude='build/' --exclude='*.log' --exclude='__pycache__/' \
+  "$repo_root/Ethernet/" \
+  "root@192.168.2.34:$iolibrary_source/Ethernet/"
+rsync -a --delete \
+  --exclude='build/' --exclude='*.log' --exclude='__pycache__/' \
+  "$repo_root/Internet/DHCP/" \
+  "root@192.168.2.34:$iolibrary_source/Internet/DHCP/"
+
+ssh root@192.168.2.34 \
+  "cmake -S '$diag_source' -B '$build_dir' \
+    -DDIAG_BUILD_FIRMWARE=ON \
+    -DDIAG_EXPECT_SPI_STATUS=1 \
+    -DPICO_SDK_PATH=/usr/share/pico-sdk \
+    -DWIZNET_PICO_C_PATH=/usr/share/wiznet-pico-c \
+    -DIOLIBRARY_ROOT='$iolibrary_source' \
+    -DDIAG_GIT_SHA='$git_sha' \
+    -DDIAG_GIT_DIRTY='$dirty' \
+    -DDIAG_DIFF_SHA256='$diff_sha' \
+    -DDIAG_BUILD_UTC='$build_utc' \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+ssh root@192.168.2.34 \
+  "cmake --build '$build_dir' --target rp2040_w5500_diag --parallel 4"
 ```
 
-Expected: `/root/w5500-diag-build/rp2040_w5500_diag.uf2` is generated without referencing `/root/firmware`.
+Expected: `/tmp/rp2040-w5500-diag-build/rp2040_w5500_diag.uf2` is
+generated without referencing `/root/firmware`. The three rsync scopes and
+exclusions are the provenance boundary; untracked sources and unexpected
+ignored sources stop the build before synchronization.
 
 - [ ] **Step 5: Flash and verify USB identity before adding W5500 code**
 
 After the board is placed in BOOTSEL mode:
 
 ```bash
-ssh root@192.168.2.34 "picotool load -v -x /root/w5500-diag-build/rp2040_w5500_diag.uf2"
+ssh root@192.168.2.34 \
+  "picotool load -v -x /tmp/rp2040-w5500-diag-build/rp2040_w5500_diag.uf2"
 ssh root@192.168.2.34 "lsusb -v -d 6666:4021"
 ```
 
@@ -937,16 +1032,22 @@ Configure the host test with fixed values and assert exact formatting. Expected 
 
 Add CMake cache variables `DIAG_GIT_SHA`, `DIAG_GIT_DIRTY`, `DIAG_DIFF_SHA256`, and `DIAG_BUILD_UTC`; reject firmware configuration when any is absent. Generate `diag_build_info.h` with `configure_file` and print all four values in the first boot event.
 
-Calculate values before syncing the tree:
+Use the exact pre-sync validation and provenance block in Task 4 and the final
+README. Its synchronized source set is
+`tests/hardware/rp2040_w5500_diag`, `Ethernet`, and `Internet/DHCP`; it rejects
+untracked files, excludes only the listed generated files, and rejects every
+other ignored file in those scopes.
 
-```bash
-git_sha=$(git rev-parse HEAD)
-dirty=$([ -n "$(git status --porcelain)" ] && printf 1 || printf 0)
-diff_sha=$(git diff --no-ext-diff --binary | sha256sum | cut -d' ' -f1)
-build_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-```
+`DIAG_DIFF_SHA256` is always a 64-hex SHA-256. For a clean synchronized source
+set it is the SHA-256 of an empty binary diff,
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`. For a
+dirty source set it hashes the complete `git diff --binary HEAD` stream over
+the three synchronized scopes, including staged and unstaged tracked changes.
+The dirty flag is derived from that same scoped comparison.
 
-Pass them as explicit `-D` values to the Pi CMake configure command. This makes provenance independent of whether `.git` is synchronized.
+Pass `DIAG_GIT_SHA`, `DIAG_GIT_DIRTY`, `DIAG_DIFF_SHA256`, and `DIAG_BUILD_UTC`
+as the four explicit `-D` values shown in Task 4. This makes provenance
+independent of whether `.git` is synchronized.
 
 - [ ] **Step 3: Document only the standalone workflow**
 

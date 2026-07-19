@@ -326,6 +326,26 @@ class CommandTests(unittest.TestCase):
                 ]
             )
 
+    def test_rejects_network_configuration_for_status(self):
+        with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
+            parse_args(
+                [
+                    "--device",
+                    "/dev/ttyACM0",
+                    "--device-ip",
+                    "192.168.2.247",
+                    "--subnet",
+                    "255.255.255.0",
+                    "--gateway",
+                    "192.168.2.1",
+                    "--listen-ip",
+                    "192.168.2.34",
+                    "--listen-port",
+                    "49000",
+                    "status",
+                ]
+            )
+
 
 class CliTests(unittest.TestCase):
     @mock.patch("diag_host.run_controller", return_value=3)

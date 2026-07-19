@@ -1,7 +1,7 @@
 # RP2040 W5500 Diagnostic Firmware Design
 
 Date: 2026-07-19
-Status: Approved for implementation planning
+Status: Implemented; accepted final design decisions recorded
 
 ## Context
 
@@ -77,10 +77,21 @@ It will compile `wizchip_conf.c`, `socket.c`, W5500 sources, and DHCP sources fr
 The build will embed:
 
 - Git commit SHA.
-- Dirty-tree flag.
-- Diff hash when the tree is dirty.
+- Dirty flag for the synchronized diagnostic, `Ethernet`, and
+  `Internet/DHCP` source set.
+- A 64-hex SHA-256 of the complete `git diff --binary HEAD` stream over that
+  source set, including staged and unstaged tracked changes.
 - Build timestamp.
 - Diagnostic protocol version.
+
+`DIAG_DIFF_SHA256` is present for both clean and dirty builds. A clean source
+set hashes the empty binary diff and uses
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`; a dirty
+source set hashes the complete scoped stream. Synchronization rejects untracked
+source files. Ignored generated files must be explicitly excluded from both the
+provenance check and synchronization, and any other ignored source file is
+rejected. Therefore every synchronized source byte is represented by `HEAD` or
+the embedded diff hash.
 
 The diagnostic USB device will have a unique product string and PID, distinct from the temperature server, so host automation cannot select the wrong UF2 or serial device.
 
@@ -142,6 +153,10 @@ DIAG protocol=1 seq=17 stage=pointer-api event=TIMEOUT reset=watchdog phase=set-
 ```
 
 Values that can contain spaces will not be emitted. This keeps parsing deterministic without adding a JSON library to the firmware.
+
+The accepted final record limit is 256 bytes including the newline. The
+mandatory fixed-width provenance event is 194 bytes including its newline, and
+both firmware and host framing tests cover that event without truncation.
 
 ## Watchdog Journal
 
@@ -244,10 +259,16 @@ Stages run in this order for `run all`. Each stage may also run independently af
 ### `dhcp`
 
 - Reset chip network and socket state.
+- Reinitialize W5500 TX/RX memory and perform bounded PHY preparation inside
+  every invocation.
 - Run the repository's DHCP client on one socket.
 - Service the DHCP time handler and USB from a bounded loop.
 - Log DHCP state changes and socket register snapshots.
 - Pass only after a complete lease provides IP, subnet, gateway, and DNS values.
+
+This self-contained boundary is the accepted repeat behavior: every
+`repeat dhcp` iteration performs its own reset, memory initialization, and PHY
+preparation rather than replaying the earlier catalog stages.
 
 No HTTP, TCP, or application service starts after DHCP.
 
@@ -258,6 +279,7 @@ No HTTP, TCP, or application service starts after DHCP.
 - Locate the diagnostic CDC device by its unique USB identity or accept an explicit device path.
 - Record raw events with host timestamps and firmware build provenance.
 - Send network configuration derived from explicit command-line arguments.
+- Reject network options with `status`; status remains read-only.
 - Run a UDP echo endpoint for the `udp` stage.
 - Request automatic or individual stage runs.
 - Detect sequence gaps, malformed events, and device reconnects.
@@ -272,7 +294,9 @@ The controller will never infer success solely from USB enumeration or DHCP addr
 - A stage restores saved registers after ordinary failure where hardware access remains valid.
 - Destructive groups begin with a chip reset rather than depending on previous socket state.
 - Blocking calls are never retried inside a stage.
-- `repeat` starts each iteration from that stage's documented prerequisites.
+- Pointer and UDP repeats restart from their documented catalog prerequisite
+  boundaries; DHCP repeats invoke the self-contained DHCP reset/memory/PHY
+  preparation described above.
 - Protocol errors do not reset hardware or alter network configuration.
 - Link-down is reported separately from SPI failure.
 - USB disconnect does not cancel an active hardware operation, but the watchdog journal remains authoritative.

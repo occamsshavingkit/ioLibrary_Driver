@@ -70,19 +70,68 @@ are rejected.
 
 ## Calculate Provenance
 
-Calculate these values in the exact worktree being audited, before rsync. Keep
-the same shell open for the sync and configure commands.
+Calculate these values in Bash in the exact worktree being audited, before
+rsync. Keep the same shell open for the sync and configure commands.
 
 ```bash
-set -eu
+set -euo pipefail
 repo_root=$(git rev-parse --show-toplevel)
-git_sha=$(git rev-parse HEAD)
-dirty=$([ -n "$(git status --porcelain)" ] && printf 1 || printf 0)
-diff_sha=$(git diff --no-ext-diff --binary | sha256sum | cut -d' ' -f1)
+set -- \
+  tests/hardware/rp2040_w5500_diag \
+  Ethernet \
+  Internet/DHCP
+
+untracked=$(git -C "$repo_root" ls-files --others --exclude-standard -- "$@")
+if [ -n "$untracked" ]; then
+  printf 'Refusing unhashed untracked source files:\n%s\n' "$untracked" >&2
+  exit 1
+fi
+
+unexpected_ignored=$(
+  git -C "$repo_root" ls-files --others --ignored --exclude-standard -- \
+    "$@" \
+    ':(glob,exclude)**/build/**' \
+    ':(glob,exclude)**/*.log' \
+    ':(glob,exclude)**/__pycache__/**'
+)
+if [ -n "$unexpected_ignored" ]; then
+  printf 'Refusing ignored source files not excluded from rsync:\n%s\n' \
+    "$unexpected_ignored" >&2
+  exit 1
+fi
+
+git_sha=$(git -C "$repo_root" rev-parse HEAD)
+if git -C "$repo_root" diff --quiet HEAD -- "$@"; then
+  dirty=0
+else
+  diff_status=$?
+  if [ "$diff_status" -ne 1 ]; then
+    exit "$diff_status"
+  fi
+  dirty=1
+fi
+diff_sha=$(
+  git -C "$repo_root" diff --no-ext-diff --binary HEAD -- "$@" |
+    sha256sum | cut -d' ' -f1
+)
 build_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 printf 'git=%s\ndirty=%s\ndiff=%s\nbuild=%s\n' \
   "$git_sha" "$dirty" "$diff_sha" "$build_utc"
 ```
+
+The synchronized source set is exactly the diagnostic project, `Ethernet`, and
+`Internet/DHCP`. `dirty` is `1` exactly when that tracked source set differs
+from `HEAD`. `DIAG_DIFF_SHA256` is always a 64-hex SHA-256: a clean source set
+hashes the empty binary diff and therefore uses
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`; a dirty
+source set hashes the complete `git diff --binary HEAD` stream over those three
+scopes, including staged and unstaged tracked changes.
+
+The invariant is that every source file rsync can transfer is either the `HEAD`
+version or represented by that diff stream. Any untracked file in a synchronized
+scope aborts the workflow. Ignored `build/`, `*.log`, and `__pycache__/` outputs
+are explicitly excluded below; any other ignored file in those scopes also
+aborts instead of reaching rsync unhashed.
 
 The firmware's first newline-terminated record is exactly:
 
@@ -95,13 +144,15 @@ DIAG protocol=1 seq=0 stage=boot event=PASS git=<40-hex> dirty=<0-or-1> diff=<64
 <!-- markdownlint-enable MD013 -->
 
 The event is 194 bytes including its newline when populated with the fixed-width
-values above. The protocol and CDC implementations enforce a 256-byte record
-limit and reject oversized or malformed framing rather than truncating it.
+values above. The accepted final protocol and CDC record limit is 256 bytes;
+both implementations reject oversized or malformed framing rather than
+truncating it.
 
 ## Synchronize Controlled Sources
 
 Only the standalone project and the required ioLibrary directories are copied.
-The trailing slashes are intentional.
+The exclusions must stay identical to the generated-file exceptions in the
+provenance check above. The trailing slashes are intentional.
 
 ```bash
 diag_source=/tmp/rp2040-w5500-diag-src
@@ -220,6 +271,10 @@ python3 /tmp/rp2040-w5500-diag-src/host/diag_host.py \
   run-all
 ```
 
+`status` is read-only and accepts no network options. The host parser rejects
+that combination instead of silently ignoring configuration values after the
+barrier `STATUS` event.
+
 The firmware shell itself accepts the following newline-terminated commands:
 
 <!-- markdownlint-disable MD013 -->
@@ -262,6 +317,12 @@ Malformed or unavailable commands produce `shell ERROR` and controller exit
 | `dhcp` | A bounded run obtained IP, subnet, gateway, and DNS from a complete lease | State transitions and socket snapshots identify incomplete DHCP |
 
 <!-- markdownlint-enable MD013 -->
+
+The accepted DHCP repeat boundary is self-contained: every `dhcp` invocation
+performs its own chip reset, memory initialization, and bounded PHY preparation
+before starting DHCP. Therefore `repeat dhcp 3` performs three independent DHCP
+attempts without replaying the catalog's earlier `chip-reset`, `version`,
+`memory-init`, or `phy-link` stage records.
 
 `callback-layout FAIL code=no-status-api` is expected for the audited current
 revision with `DIAG_EXPECT_SPI_STATUS=1`. The weak independent registrar is
