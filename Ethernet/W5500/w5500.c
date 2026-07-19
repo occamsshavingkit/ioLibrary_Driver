@@ -62,39 +62,6 @@
 #if   (_WIZCHIP_ == 5500)
 ////////////////////////////////////////////////////
 
-/*
- * SPI error checking (AUD-009)
- * Wrapper: call after each transfer to propagate HAL errors.
- * Default stubs always return 0 (OK). Multi-task or DMA-based
- * deployments must implement real callbacks.
- */
-static uint8_t _spi_status_check(void) {
-    if (WIZCHIP.IF.SPI_STATUS._check_busy &&
-        WIZCHIP.IF.SPI_STATUS._check_busy() != 0) {
-        return 1;
-    }
-    if (WIZCHIP.IF.SPI_STATUS._get_error &&
-        WIZCHIP.IF.SPI_STATUS._get_error() != 0) {
-        return 2;
-    }
-    return 0;
-}
-
-/*
- * Persistent SPI error latch (AUD-056).
- * Set by _spi_status_check() after each transfer; cleared only
- * by explicit wizchip_clear_spi_error() call.
- */
-static uint8_t _wizchip_spi_error;
-
-uint8_t wizchip_get_spi_error(void) {
-    return _wizchip_spi_error;
-}
-
-void wizchip_clear_spi_error(void) {
-    _wizchip_spi_error = 0;
-}
-
 uint8_t  WIZCHIP_READ(uint32_t AddrSel) {
     uint8_t ret;
     uint8_t spi_data[3];
@@ -116,7 +83,6 @@ uint8_t  WIZCHIP_READ(uint32_t AddrSel) {
     }
     ret = WIZCHIP.IF.SPI._read_byte();
 
-    if (_spi_status_check()) _wizchip_spi_error = 1;
 
     WIZCHIP.CS._deselect();
     WIZCHIP_CRITICAL_EXIT();
@@ -145,7 +111,6 @@ void     WIZCHIP_WRITE(uint32_t AddrSel, uint8_t wb) {
         WIZCHIP.IF.SPI._write_burst(spi_data, 4);
     }
 
-    if (_spi_status_check()) _wizchip_spi_error = 1;
 
     WIZCHIP.CS._deselect();
     WIZCHIP_CRITICAL_EXIT();
@@ -175,7 +140,6 @@ void     WIZCHIP_READ_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len) {
         WIZCHIP.IF.SPI._read_burst(pBuf, len);
     }
 
-    if (_spi_status_check()) _wizchip_spi_error = 1;
 
     WIZCHIP.CS._deselect();
     WIZCHIP_CRITICAL_EXIT();
@@ -205,7 +169,6 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len) {
         WIZCHIP.IF.SPI._write_burst(pBuf, len);
     }
 
-    if (_spi_status_check()) _wizchip_spi_error = 1;
 
     WIZCHIP.CS._deselect();
     WIZCHIP_CRITICAL_EXIT();
@@ -215,14 +178,13 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len) {
 uint16_t getSn_TX_FSR(uint8_t sn) {
     uint16_t val = 0, val1 = 0;
     uint32_t _poll = 0;
-    uint8_t buf[2];
 
     do {
-        WIZCHIP_READ_BUF(Sn_TX_FSR(sn), buf, 2);
-        val1 = ((uint16_t)buf[0] << 8) | buf[1];
+        val1 = WIZCHIP_READ(Sn_TX_FSR(sn));
+        val1 = (val1 << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_TX_FSR(sn), 1));
         if (val1 != 0) {
-            WIZCHIP_READ_BUF(Sn_TX_FSR(sn), buf, 2);
-            val = ((uint16_t)buf[0] << 8) | buf[1];
+            val = WIZCHIP_READ(Sn_TX_FSR(sn));
+            val = (val << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_TX_FSR(sn), 1));
         }
     } while (val != val1 && ++_poll < _WIZCHIP_POLL_MAX_);
     return val;
@@ -232,14 +194,13 @@ uint16_t getSn_TX_FSR(uint8_t sn) {
 uint16_t getSn_RX_RSR(uint8_t sn) {
     uint16_t val = 0, val1 = 0;
     uint32_t _poll = 0;
-    uint8_t buf[2];
 
     do {
-        WIZCHIP_READ_BUF(Sn_RX_RSR(sn), buf, 2);
-        val1 = ((uint16_t)buf[0] << 8) | buf[1];
+        val1 = WIZCHIP_READ(Sn_RX_RSR(sn));
+        val1 = (val1 << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_RX_RSR(sn), 1));
         if (val1 != 0) {
-            WIZCHIP_READ_BUF(Sn_RX_RSR(sn), buf, 2);
-            val = ((uint16_t)buf[0] << 8) | buf[1];
+            val = WIZCHIP_READ(Sn_RX_RSR(sn));
+            val = (val << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_RX_RSR(sn), 1));
         }
     } while (val != val1 && ++_poll < _WIZCHIP_POLL_MAX_);
     return val;

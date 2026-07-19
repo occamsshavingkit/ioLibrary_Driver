@@ -54,7 +54,6 @@
 //
 //*****************************************************************************
 #include "socket.h"
-#include "wizchip_conf.h"
 
 //M20150401 : Typing Error
 //#define SOCK_ANY_PORT_NUM  0xC000;
@@ -512,7 +511,7 @@ static int8_t connect_IO_6(uint8_t sn, uint8_t * addr, uint16_t port, uint8_t ad
     }
     {
         uint32_t _poll = 0;
-        while (getSn_SR(sn) != SOCK_ESTABLISHED && !wizchip_get_spi_error()) {
+        while (getSn_SR(sn) != SOCK_ESTABLISHED) {
             if (getSn_IR(sn) & Sn_IR_TIMEOUT) {
                 setSn_IR(sn, Sn_IR_TIMEOUT);
                 ret = SOCKERR_TIMEOUT; goto conn_done;
@@ -552,7 +551,7 @@ int8_t disconnect(uint8_t sn) {
         }
         {
             uint32_t _poll = 0;
-            while (getSn_SR(sn) != SOCK_CLOSED && !wizchip_get_spi_error()) {
+            while (getSn_SR(sn) != SOCK_CLOSED) {
                 if (getSn_IR(sn) & Sn_IR_TIMEOUT) {
                     WIZCHIP_SOCK_UNLOCK(sn); close(sn);
                     return SOCKERR_TIMEOUT;
@@ -653,7 +652,7 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
        point, confirmed by fourth-pass analysis. */
     setSn_CR(sn, Sn_CR_SEND);
 
-    while (getSn_CR(sn) && !wizchip_get_spi_error());  // wait to process the command...
+    while (getSn_CR(sn));  // wait to process the command...
     sock_is_sending |= (1 << sn);
 
     ret = len;
@@ -687,7 +686,7 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
     wiz_send_data(sn, buf, len);
     setSn_CR(sn, Sn_CR_SEND);
 
-    while (getSn_CR(sn) && !wizchip_get_spi_error());  // wait to process the command...
+    while (getSn_CR(sn));  // wait to process the command...
     sock_is_sending |= (1 << sn);
 
     return len;
