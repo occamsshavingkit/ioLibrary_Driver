@@ -271,14 +271,17 @@ result proves the defect was detected before chip-select or SPI activity.
 
 ## Capture Current-Driver Structural Evidence
 
-After flashing, run a request that must pass through `callback-layout`. Preserve
+After flashing, request `callback-layout` directly. The automatic preflight has
+already failed on the current driver, leaving later-stage prerequisites
+unsatisfied. A later-stage `run` request does not rerun a failed prerequisite,
+so the direct request is required to repeat the structural preflight. Preserve
 the controller's real exit status and transcript:
 
 ```bash
 set +e
 ssh root@192.168.2.34 \
   "python3 /tmp/rp2040-w5500-diag-src/host/diag_host.py \
-    --device <device> run pointer-api" \
+    --device <device> run callback-layout" \
   > /tmp/opencode/w5500-diag-current.log 2>&1
 controller_status=$?
 set -e
