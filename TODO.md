@@ -1,10 +1,29 @@
 # W5500 Audit Findings — Remaining Work
 
-**Resolved**: All 49 audit findings (AUD-001 through AUD-049) fixed. See [AUDIT-RESOLVED.md](./AUDIT-RESOLVED.md) for the complete resolution log with per-finding status and verification results.
-
+**Resolved**: All 49 original audit findings (AUD-001–049) fixed. See [AUDIT-RESOLVED.md](./AUDIT-RESOLVED.md).
+**Fifth-pass re-audit** (2026-07-18): 4 domain agents found 15+ new findings. P0 regression fixed, 3 P1 correctness bugs fixed, rest documented below.
 **Active branch**: `all-audit-fixes` in fork `occamsshavingkit/ioLibrary_Driver`.
 **P0 PRs**: #180–184 submitted to Wiznet/ioLibrary_Driver.
 **P1-P3 branches**: On fork, PR-ready when upstream accepts outstanding PRs.
+
+## New Findings from Fifth-Pass Re-Audit (VER-005)
+
+### Fixed
+- **[x] AUD-050 (P0)**: Missing braces in TCP flag check — broke all W5500 TCP nonblocking
+- **[x] AUD-051 (P1)**: Double unlock on socket() success — mutex underflow
+- **[x] AUD-052 (P1)**: connect_IO_6() unbounded poll — missing deadline counter
+- **[x] AUD-053 (P1)**: disconnect() unbounded poll — missing deadline counter
+- **[x] AUD-054 (P2)**: IINCHIP_WRITE_BUF mapped to wrong macro (3-arg vs 2-arg)
+
+### Remaining
+- **[ ] AUD-055 (P1)**: Missing locks on 10 socket API entry points — shared state accessed without protection
+- **[ ] AUD-056 (P2)**: _spi_status_check() never called — AUD-009 SPI error detection inert
+- **[ ] AUD-057 (P1)**: TOCTOU on TX/RX buffer pointers across separate SPI bursts
+- **[ ] AUD-058 (P2)**: listen() no lock but calls close() — inconsistent lock hierarchy
+- **[ ] AUD-059 (P2)**: disconnect() modifies global bitfields without lock
+- **[ ] AUD-060 (P2)**: recv/recvfrom share state arrays without lock
+- **[ ] AUD-061–064 (P3)**: SPI efficiency — ~9-13 frames saved per sendto, ~4-8 per send/recv
+- **[ ] AUD-S4 (P3)**: Stale addr pointer in recvfrom_W5x00 — passes stack-local to unused param
 
 ## Remaining Host-Doable Verification (no hardware required)
 
