@@ -4,6 +4,7 @@
 #include "diag_runner.h"
 #include "wizchip_conf.h"
 
+#include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -14,9 +15,13 @@ typedef struct diag_stage_context {
     wiz_NetInfo network;
     uint8_t host_ip[4];
     uint16_t host_port;
-    uint8_t dhcp_buffer[2048];
+    _Alignas(uint32_t) uint8_t dhcp_buffer[2048];
     char details[96];
 } diag_stage_context_t;
+
+_Static_assert(offsetof(diag_stage_context_t, dhcp_buffer) %
+                   _Alignof(uint32_t) == 0u,
+               "DHCP buffer must be uint32_t aligned");
 
 void diag_stage_set_details(diag_stage_context_t *context,
                             const char *format, ...);
@@ -32,5 +37,8 @@ diag_stage_result_t diag_stage_burst_register(diag_stage_context_t *context);
 diag_stage_result_t diag_stage_pointer_sequential(diag_stage_context_t *context);
 diag_stage_result_t diag_stage_pointer_burst(diag_stage_context_t *context);
 diag_stage_result_t diag_stage_pointer_api(diag_stage_context_t *context);
+diag_stage_result_t diag_stage_socket_open(diag_stage_context_t *context);
+diag_stage_result_t diag_stage_udp(diag_stage_context_t *context);
+diag_stage_result_t diag_stage_dhcp(diag_stage_context_t *context);
 
 #endif

@@ -66,24 +66,86 @@ const char *diag_stage_phase_name(diag_stage_id_t stage, uint16_t phase)
     if (stage <= DIAG_STAGE_PHY_LINK) {
         return phase == 1u ? "driver-call" : "unknown";
     }
-    if (stage < DIAG_STAGE_SINGLE_REGISTER ||
-        stage > DIAG_STAGE_POINTER_API) {
+    if (stage > DIAG_STAGE_DHCP) {
         return "unknown";
     }
 
+    if (stage >= DIAG_STAGE_SINGLE_REGISTER && stage <= DIAG_STAGE_POINTER_API) {
+        switch (phase) {
+        case DIAG_PHASE_SAVE:
+            return "save";
+        case DIAG_PHASE_WRITE_TX:
+            return "write-tx";
+        case DIAG_PHASE_READ_TX:
+            return "read-tx";
+        case DIAG_PHASE_WRITE_RX:
+            return "write-rx";
+        case DIAG_PHASE_READ_RX:
+            return "read-rx";
+        case DIAG_PHASE_RESTORE:
+            return "restore";
+        default:
+            return "unknown";
+        }
+    }
+
     switch (phase) {
-    case DIAG_PHASE_SAVE:
-        return "save";
-    case DIAG_PHASE_WRITE_TX:
-        return "write-tx";
-    case DIAG_PHASE_READ_TX:
-        return "read-tx";
-    case DIAG_PHASE_WRITE_RX:
-        return "write-rx";
-    case DIAG_PHASE_READ_RX:
-        return "read-rx";
-    case DIAG_PHASE_RESTORE:
-        return "restore";
+    case DIAG_PHASE_SET_NETINFO:
+        return "set-netinfo";
+    case DIAG_PHASE_SOCKET_OPEN:
+        return "socket-open";
+    case DIAG_PHASE_SET_IOMODE:
+        return "set-iomode";
+    case DIAG_PHASE_SOCKET_STATUS:
+        return "socket-status";
+    case DIAG_PHASE_TX_FSR:
+        return "tx-fsr";
+    case DIAG_PHASE_RX_RSR:
+        return "rx-rsr";
+    case DIAG_PHASE_TX_WR_BEFORE:
+        return "tx-wr-before";
+    case DIAG_PHASE_SEND_IR_CLEAR:
+        return "send-ir-clear";
+    case DIAG_PHASE_SENDTO:
+        return "sendto";
+    case DIAG_PHASE_SEND_IR_READ:
+        return "send-ir-read";
+    case DIAG_PHASE_TX_WR_AFTER:
+        return "tx-wr-after";
+    case DIAG_PHASE_RX_RD_BEFORE:
+        return "rx-rd-before";
+    case DIAG_PHASE_RX_RSR_POLL:
+        return "rx-rsr-poll";
+    case DIAG_PHASE_RECVFROM:
+        return "recvfrom";
+    case DIAG_PHASE_RX_RD_AFTER:
+        return "rx-rd-after";
+    case DIAG_PHASE_CHIP_RESET:
+        return "chip-reset";
+    case DIAG_PHASE_MEMORY_INIT:
+        return "memory-init";
+    case DIAG_PHASE_PHY_LINK:
+        return "phy-link";
+    case DIAG_PHASE_DHCP_INIT:
+        return "dhcp-init";
+    case DIAG_PHASE_DHCP_RUN:
+        return "dhcp-run";
+    case DIAG_PHASE_LEASE_APPLY:
+        return "lease-apply";
+    case DIAG_PHASE_DHCP_STOP:
+        return "dhcp-stop";
+    case DIAG_PHASE_SNAPSHOT_SR:
+        return "snapshot-sr";
+    case DIAG_PHASE_SNAPSHOT_IR:
+        return "snapshot-ir";
+    case DIAG_PHASE_SNAPSHOT_TX_WR:
+        return "snapshot-tx-wr";
+    case DIAG_PHASE_SNAPSHOT_RX_RD:
+        return "snapshot-rx-rd";
+    case DIAG_PHASE_SNAPSHOT_TX_FSR:
+        return "snapshot-tx-fsr";
+    case DIAG_PHASE_SNAPSHOT_RX_RSR:
+        return "snapshot-rx-rsr";
     default:
         return "unknown";
     }
@@ -134,7 +196,15 @@ void diag_runner_prepare_repeat(diag_runner_t *runner, diag_stage_id_t id)
     if (id == DIAG_STAGE_UDP) {
         restart = DIAG_STAGE_SOCKET_OPEN;
     } else if (id == DIAG_STAGE_DHCP) {
-        restart = DIAG_STAGE_CHIP_RESET;
+        restart = DIAG_STAGE_DHCP;
     }
     runner->passed_mask &= STAGE_BIT(restart) - 1u;
+}
+
+diag_stage_id_t diag_runner_execution_start(diag_stage_id_t id)
+{
+    if (id == DIAG_STAGE_UDP) {
+        return DIAG_STAGE_SOCKET_OPEN;
+    }
+    return id;
 }

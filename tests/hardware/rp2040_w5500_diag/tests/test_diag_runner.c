@@ -92,7 +92,13 @@ int main(void)
 
     runner.passed_mask = (1u << DIAG_STAGE_COUNT) - 1u;
     diag_runner_prepare_repeat(&runner, DIAG_STAGE_DHCP);
-    assert((runner.passed_mask & (1u << DIAG_STAGE_CHIP_RESET)) == 0u);
+    assert((runner.passed_mask & (1u << DIAG_STAGE_DHCP)) == 0u);
+    assert((runner.passed_mask & (1u << DIAG_STAGE_UDP)) != 0u);
+    assert((runner.passed_mask & (1u << DIAG_STAGE_CHIP_RESET)) != 0u);
     assert((runner.passed_mask & (1u << DIAG_STAGE_TRANSPORT_INIT)) != 0u);
+
+    assert(diag_runner_execution_start(DIAG_STAGE_UDP) == DIAG_STAGE_SOCKET_OPEN);
+    assert(diag_runner_execution_start(DIAG_STAGE_DHCP) == DIAG_STAGE_DHCP);
+    assert(diag_runner_execution_start(DIAG_STAGE_POINTER_API) == DIAG_STAGE_POINTER_API);
     return 0;
 }

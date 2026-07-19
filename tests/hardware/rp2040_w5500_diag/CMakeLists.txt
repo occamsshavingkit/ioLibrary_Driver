@@ -23,6 +23,7 @@ if(DIAG_BUILD_FIRMWARE)
 
     set(DIAG_FIRMWARE_SOURCES
         src/diag_journal.c
+        src/diag_net.c
         src/diag_protocol.c
         src/diag_runner.c
         src/diag_usb.c
@@ -101,6 +102,7 @@ if(DIAG_BUILD_FIRMWARE)
         hardware_clocks
         hardware_watchdog
         pico_stdlib
+        pico_unique_id
         tinyusb_device
         tinyusb_board
     )
@@ -141,6 +143,11 @@ else()
     target_compile_definitions(test_w5500_diag_status_contract PRIVATE
         _WIZCHIP_=W5500
     )
+    add_executable(test_diag_net
+        src/diag_runner.c
+        src/diag_net.c
+        tests/test_diag_net.c
+    )
 
     foreach(target IN ITEMS
             test_diag_protocol
@@ -148,7 +155,8 @@ else()
             test_diag_stage_phases
             test_diag_journal
             test_diag_usb_identity
-            test_w5500_diag_status_contract)
+            test_w5500_diag_status_contract
+            test_diag_net)
         target_include_directories(${target} PRIVATE src)
         target_compile_features(${target} PRIVATE c_std_11)
         target_compile_options(${target} PRIVATE
@@ -165,4 +173,5 @@ else()
     add_test(NAME diag_journal COMMAND test_diag_journal)
     add_test(NAME diag_usb_identity COMMAND test_diag_usb_identity)
     add_test(NAME w5500_diag_status_contract COMMAND test_w5500_diag_status_contract)
+    add_test(NAME diag_net COMMAND test_diag_net)
 endif()

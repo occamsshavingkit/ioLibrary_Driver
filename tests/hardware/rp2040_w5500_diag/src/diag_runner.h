@@ -35,7 +35,39 @@ enum {
     DIAG_PHASE_READ_TX = 3,
     DIAG_PHASE_WRITE_RX = 4,
     DIAG_PHASE_READ_RX = 5,
-    DIAG_PHASE_RESTORE = 6
+    DIAG_PHASE_RESTORE = 6,
+
+    DIAG_PHASE_SET_NETINFO = 10,
+    DIAG_PHASE_SOCKET_OPEN = 11,
+    DIAG_PHASE_SET_IOMODE = 12,
+    DIAG_PHASE_SOCKET_STATUS = 13,
+    DIAG_PHASE_TX_FSR = 14,
+    DIAG_PHASE_RX_RSR = 15,
+
+    DIAG_PHASE_TX_WR_BEFORE = 16,
+    DIAG_PHASE_SEND_IR_CLEAR = 17,
+    DIAG_PHASE_SENDTO = 18,
+    DIAG_PHASE_SEND_IR_READ = 19,
+    DIAG_PHASE_TX_WR_AFTER = 20,
+    DIAG_PHASE_RX_RD_BEFORE = 21,
+    DIAG_PHASE_RX_RSR_POLL = 22,
+    DIAG_PHASE_RECVFROM = 23,
+    DIAG_PHASE_RX_RD_AFTER = 24,
+
+    DIAG_PHASE_CHIP_RESET = 25,
+    DIAG_PHASE_MEMORY_INIT = 26,
+    DIAG_PHASE_PHY_LINK = 27,
+    DIAG_PHASE_DHCP_INIT = 28,
+    DIAG_PHASE_DHCP_RUN = 29,
+    DIAG_PHASE_LEASE_APPLY = 30,
+    DIAG_PHASE_DHCP_STOP = 31,
+
+    DIAG_PHASE_SNAPSHOT_SR = 32,
+    DIAG_PHASE_SNAPSHOT_IR = 33,
+    DIAG_PHASE_SNAPSHOT_TX_WR = 34,
+    DIAG_PHASE_SNAPSHOT_RX_RD = 35,
+    DIAG_PHASE_SNAPSHOT_TX_FSR = 36,
+    DIAG_PHASE_SNAPSHOT_RX_RSR = 37
 };
 
 typedef struct {
@@ -62,5 +94,6 @@ uint32_t diag_runner_begin(diag_runner_t *runner, diag_stage_id_t id);
 void diag_runner_finish(diag_runner_t *runner, diag_stage_id_t id,
                         diag_stage_result_t result);
 void diag_runner_prepare_repeat(diag_runner_t *runner, diag_stage_id_t id);
+diag_stage_id_t diag_runner_execution_start(diag_stage_id_t id);
 
 #endif

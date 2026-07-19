@@ -3,17 +3,20 @@
 #include "diag_usb.h"
 #include "diag_watchdog.h"
 #include "diag_w5500_stages.h"
+#include "diag_net.h"
 
 #include "bsp/board_api.h"
 #include "hardware/clocks.h"
 #include "hardware/watchdog.h"
 #include "pico/time.h"
+#include "pico/unique_id.h"
 
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #define DIAG_FIRMWARE_ID "rp2040-w5500-diag"
 
@@ -31,6 +34,9 @@ static const diag_stage_handler_t stage_handlers[DIAG_STAGE_COUNT] = {
     [DIAG_STAGE_POINTER_SEQUENTIAL] = diag_stage_pointer_sequential,
     [DIAG_STAGE_POINTER_BURST] = diag_stage_pointer_burst,
     [DIAG_STAGE_POINTER_API] = diag_stage_pointer_api,
+    [DIAG_STAGE_SOCKET_OPEN] = diag_stage_socket_open,
+    [DIAG_STAGE_UDP] = diag_stage_udp,
+    [DIAG_STAGE_DHCP] = diag_stage_dhcp,
 };
 
 static bool emit_event(uint32_t sequence, const char *stage, const char *event,
@@ -47,7 +53,7 @@ static bool emit_event(uint32_t sequence, const char *stage, const char *event,
 static void emit_help(uint32_t sequence)
 {
     (void)emit_event(sequence, "shell", "HELP",
-                     "commands=help,status,list,run,repeat,reboot");
+                     "commands=help,status,list,run,repeat,net,reboot");
 }
 
 static void emit_status(uint32_t sequence, const diag_runner_t *runner)
@@ -156,13 +162,13 @@ static diag_stage_result_t run_stage(diag_stage_context_t *context,
     return result;
 }
 
-static diag_stage_result_t run_all(diag_stage_context_t *context)
+static diag_stage_result_t run_all(diag_stage_context_t *context, diag_stage_id_t limit_id)
 {
     diag_stage_id_t id;
     diag_stage_result_t overall = DIAG_STAGE_PASS;
 
     diag_runner_prepare_repeat(context->runner, DIAG_STAGE_CALLBACK_LAYOUT);
-    for (id = DIAG_STAGE_CALLBACK_LAYOUT; id <= DIAG_STAGE_POINTER_API; ++id) {
+    for (id = DIAG_STAGE_CALLBACK_LAYOUT; id <= limit_id; ++id) {
         if (!diag_runner_can_run(context->runner, id,
                                  context->network_configured)) {
             continue;
@@ -209,11 +215,19 @@ static void handle_command(diag_stage_context_t *context, const char *line)
                              "reason=invalid-stage");
         } else {
             diag_runner_prepare_repeat(context->runner, descriptor->id);
-            (void)run_stage(context, descriptor->id);
+            diag_stage_id_t id;
+            diag_stage_id_t start_id =
+                diag_runner_execution_start(descriptor->id);
+
+            for (id = start_id; id <= descriptor->id; ++id) {
+                if (run_stage(context, id) != DIAG_STAGE_PASS) {
+                    break;
+                }
+            }
         }
         break;
     case DIAG_COMMAND_RUN_ALL:
-        (void)run_all(context);
+        (void)run_all(context, DIAG_STAGE_DHCP);
         break;
     case DIAG_COMMAND_REPEAT:
         descriptor = diag_stage_by_name(command.stage);
@@ -224,11 +238,64 @@ static void handle_command(diag_stage_context_t *context, const char *line)
         }
         for (iteration = 0u; iteration < command.count; ++iteration) {
             diag_runner_prepare_repeat(context->runner, descriptor->id);
-            if (run_stage(context, descriptor->id) != DIAG_STAGE_PASS) {
+            diag_stage_id_t id;
+            diag_stage_id_t start_id =
+                diag_runner_execution_start(descriptor->id);
+            bool failed = false;
+
+            for (id = start_id; id <= descriptor->id; ++id) {
+                if (run_stage(context, id) != DIAG_STAGE_PASS) {
+                    failed = true;
+                    break;
+                }
+            }
+            if (failed) {
                 break;
             }
         }
         break;
+    case DIAG_COMMAND_NET: {
+        pico_unique_board_id_t board_id;
+        wiz_NetInfo temporary = {0};
+        char details[128];
+        int written;
+
+        sequence = ++context->runner->sequence;
+
+        if (!diag_net_validate_static(command.device_ip, command.subnet,
+                                      command.gateway, command.host_ip,
+                                      command.host_port)) {
+            (void)emit_event(sequence, "shell", "ERROR", "reason=invalid-network");
+            break;
+        }
+
+        pico_get_unique_board_id(&board_id);
+        memcpy(temporary.ip, command.device_ip, sizeof(temporary.ip));
+        memcpy(temporary.sn, command.subnet, sizeof(temporary.sn));
+        memcpy(temporary.gw, command.gateway, sizeof(temporary.gw));
+        diag_net_derive_mac(board_id.id, temporary.mac);
+        temporary.dhcp = NETINFO_STATIC;
+
+        memcpy(context->host_ip, command.host_ip, sizeof(context->host_ip));
+        context->host_port = command.host_port;
+        context->network = temporary;
+        context->runner->passed_mask &= ~((1u << DIAG_STAGE_SOCKET_OPEN) |
+                                          (1u << DIAG_STAGE_UDP) |
+                                          (1u << DIAG_STAGE_DHCP));
+        context->network_configured = true;
+
+        written = snprintf(details, sizeof(details),
+                           "device=%u.%u.%u.%u host=%u.%u.%u.%u port=%u",
+                           command.device_ip[0], command.device_ip[1],
+                           command.device_ip[2], command.device_ip[3],
+                           command.host_ip[0], command.host_ip[1],
+                           command.host_ip[2], command.host_ip[3],
+                           command.host_port);
+        if (written >= 0 && (size_t)written < sizeof(details)) {
+            (void)emit_event(sequence, "shell", "NET", details);
+        }
+        break;
+    }
     case DIAG_COMMAND_REBOOT:
         sequence = ++context->runner->sequence;
         (void)emit_event(sequence, "shell", "REBOOT", "reason=requested");
@@ -257,7 +324,7 @@ int main(void)
     bool timeout_announced = false;
     bool automatic_smoke_done = false;
     char command_line[DIAG_LINE_MAX + 1u];
-    diag_stage_context_t context = {0};
+    static diag_stage_context_t context;
 
     set_sys_clock_khz(133000u, true);
     board_init();
@@ -305,7 +372,7 @@ int main(void)
         if (diag_usb_connected() && boot_announced && !recovered &&
             !runner.recovery_mode && !automatic_smoke_done) {
             automatic_smoke_done = true;
-            (void)run_all(&context);
+            (void)run_all(&context, DIAG_STAGE_POINTER_API);
         }
         if (!diag_usb_connected()) {
             boot_announced = false;
