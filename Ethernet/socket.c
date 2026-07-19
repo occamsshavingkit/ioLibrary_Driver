@@ -1399,9 +1399,9 @@ int8_t  ctlsocket(uint8_t sn, ctlsock_type cstype, void* arg) {
 }
 
 int8_t  setsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
-    // M20131220 : Remove warning
-    //uint8_t tmp;
+    int8_t ret;
     CHECK_SOCKNUM();
+    WIZCHIP_SOCK_LOCK(sn);
     switch (sotype) {
     case SO_TTL:
         setSn_TTL(sn, *(uint8_t*)arg);
@@ -1428,7 +1428,7 @@ int8_t  setsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
         CHECK_TCPMODE();
 #if _WIZCHIP_ > 5200
         if (getSn_KPALVTR(sn) != 0) {
-            return SOCKERR_SOCKOPT;
+            ret = SOCKERR_SOCKOPT; goto ss_done;
         }
 #endif
         setSn_CR(sn, Sn_CR_SEND_KEEP);
@@ -1437,7 +1437,7 @@ int8_t  setsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
             //if ((tmp = getSn_IR(sn)) & Sn_IR_TIMEOUT)
             if (getSn_IR(sn) & Sn_IR_TIMEOUT) {
                 setSn_IR(sn, Sn_IR_TIMEOUT);
-                return SOCKERR_TIMEOUT;
+                ret = SOCKERR_TIMEOUT; goto ss_done;
             }
         }
         break;
@@ -1449,9 +1449,12 @@ int8_t  setsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
 #endif
 #endif
     default:
-        return SOCKERR_ARG;
+        ret = SOCKERR_ARG; goto ss_done;
     }
-    return SOCK_OK;
+    ret = SOCK_OK;
+ss_done:
+    WIZCHIP_SOCK_UNLOCK(sn);
+    return ret;
 }
 
 int8_t getsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
