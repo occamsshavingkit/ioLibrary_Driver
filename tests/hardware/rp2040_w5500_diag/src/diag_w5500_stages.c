@@ -34,6 +34,27 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t *buf, uint16_t len,
 #define DIAG_RX_RD_PATTERN 0x5678u
 #define DIAG_NETWORK_WATCHDOG_MS 5000u
 
+#if DIAG_EXPECT_SPI_STATUS
+static uint8_t diag_spi_error(void)
+{
+    return wizchip_get_spi_error();
+}
+
+static void diag_clear_spi_error(void)
+{
+    wizchip_clear_spi_error();
+}
+#else
+static uint8_t diag_spi_error(void)
+{
+    return 0u;
+}
+
+static void diag_clear_spi_error(void)
+{
+}
+#endif
+
 typedef enum {
     DIAG_POINTER_SEQUENTIAL,
     DIAG_POINTER_BURST,
@@ -468,7 +489,7 @@ diag_stage_result_t diag_stage_pointer_api(diag_stage_context_t *context)
 
 static void take_failure_snapshot(diag_stage_context_t *context, diag_stage_id_t stage, const char *code)
 {
-    uint8_t spi_err = wizchip_get_spi_error();
+    uint8_t spi_err = diag_spi_error();
     uint32_t timeout = stage == DIAG_STAGE_DHCP
                            ? DIAG_NETWORK_WATCHDOG_MS
                            : stage_timeout(stage);
@@ -497,7 +518,7 @@ static void take_failure_snapshot(diag_stage_context_t *context, diag_stage_id_t
     uint16_t rs = wizchip_read16_5500(Sn_RX_RSR(0));
     diag_watchdog_complete();
 
-    if (wizchip_get_spi_error()) {
+    if (diag_spi_error()) {
         spi_err = 1;
     }
 
@@ -513,7 +534,7 @@ diag_stage_result_t diag_stage_socket_open(diag_stage_context_t *context)
         return DIAG_STAGE_FAIL;
     }
 
-    wizchip_clear_spi_error();
+    diag_clear_spi_error();
 
     diag_watchdog_begin(DIAG_STAGE_SOCKET_OPEN, DIAG_PHASE_SET_NETINFO, context->sequence, stage_timeout(DIAG_STAGE_SOCKET_OPEN));
     int8_t net_res = ctlnetwork(CN_SET_NETINFO, &context->network);
@@ -564,7 +585,7 @@ diag_stage_result_t diag_stage_socket_open(diag_stage_context_t *context)
         return DIAG_STAGE_FAIL;
     }
 
-    if (wizchip_get_spi_error() != 0) {
+    if (diag_spi_error() != 0) {
         take_failure_snapshot(context, DIAG_STAGE_SOCKET_OPEN, "spi-latch");
         return DIAG_STAGE_FAIL;
     }
@@ -576,13 +597,13 @@ diag_stage_result_t diag_stage_udp(diag_stage_context_t *context)
 {
     diag_udp_packet_t packet;
 
-    wizchip_clear_spi_error();
+    diag_clear_spi_error();
     diag_net_encode_udp(context->sequence, (uint8_t *)&packet);
 
     diag_watchdog_begin(DIAG_STAGE_UDP, DIAG_PHASE_TX_WR_BEFORE, context->sequence, stage_timeout(DIAG_STAGE_UDP));
     uint16_t tx_wr_before = wizchip_read16_5500(Sn_TX_WR(0));
     diag_watchdog_complete();
-    if (wizchip_get_spi_error() != 0) {
+    if (diag_spi_error() != 0) {
         take_failure_snapshot(context, DIAG_STAGE_UDP, "pointer-read");
         return DIAG_STAGE_FAIL;
     }
@@ -590,7 +611,7 @@ diag_stage_result_t diag_stage_udp(diag_stage_context_t *context)
     diag_watchdog_begin(DIAG_STAGE_UDP, DIAG_PHASE_SEND_IR_CLEAR, context->sequence, stage_timeout(DIAG_STAGE_UDP));
     setSn_IR(0, (Sn_IR_SENDOK | Sn_IR_TIMEOUT));
     diag_watchdog_complete();
-    if (wizchip_get_spi_error() != 0) {
+    if (diag_spi_error() != 0) {
         take_failure_snapshot(context, DIAG_STAGE_UDP, "send-ir-clear");
         return DIAG_STAGE_FAIL;
     }
@@ -628,7 +649,7 @@ diag_stage_result_t diag_stage_udp(diag_stage_context_t *context)
         uint8_t ir = getSn_IR(0);
         diag_watchdog_complete();
 
-        if (wizchip_get_spi_error() != 0) {
+        if (diag_spi_error() != 0) {
             take_failure_snapshot(context, DIAG_STAGE_UDP, "send");
             return DIAG_STAGE_FAIL;
         }
@@ -669,7 +690,7 @@ diag_stage_result_t diag_stage_udp(diag_stage_context_t *context)
     diag_watchdog_begin(DIAG_STAGE_UDP, DIAG_PHASE_RX_RD_BEFORE, context->sequence, stage_timeout(DIAG_STAGE_UDP));
     uint16_t rx_rd_before = wizchip_read16_5500(Sn_RX_RD(0));
     diag_watchdog_complete();
-    if (wizchip_get_spi_error() != 0) {
+    if (diag_spi_error() != 0) {
         take_failure_snapshot(context, DIAG_STAGE_UDP, "pointer-read");
         return DIAG_STAGE_FAIL;
     }
@@ -690,7 +711,7 @@ diag_stage_result_t diag_stage_udp(diag_stage_context_t *context)
         available = getSn_RX_RSR(0);
         diag_watchdog_complete();
         (void)available;
-        if (wizchip_get_spi_error() != 0) {
+        if (diag_spi_error() != 0) {
             take_failure_snapshot(context, DIAG_STAGE_UDP, "recv");
             return DIAG_STAGE_FAIL;
         }
@@ -728,7 +749,7 @@ diag_stage_result_t diag_stage_udp(diag_stage_context_t *context)
     diag_watchdog_begin(DIAG_STAGE_UDP, DIAG_PHASE_RX_RD_AFTER, context->sequence, stage_timeout(DIAG_STAGE_UDP));
     uint16_t rx_rd_after = wizchip_read16_5500(Sn_RX_RD(0));
     diag_watchdog_complete();
-    if (wizchip_get_spi_error() != 0) {
+    if (diag_spi_error() != 0) {
         take_failure_snapshot(context, DIAG_STAGE_UDP, "pointer-read");
         return DIAG_STAGE_FAIL;
     }
@@ -776,7 +797,7 @@ diag_stage_result_t diag_stage_dhcp(diag_stage_context_t *context)
                                       (1u << DIAG_STAGE_UDP) |
                                       (1u << DIAG_STAGE_DHCP));
 
-    wizchip_clear_spi_error();
+    diag_clear_spi_error();
     diag_watchdog_begin(DIAG_STAGE_DHCP, DIAG_PHASE_CHIP_RESET,
                         context->sequence, DIAG_NETWORK_WATCHDOG_MS);
     w5500_diag_board_reset();
@@ -788,7 +809,7 @@ diag_stage_result_t diag_stage_dhcp(diag_stage_context_t *context)
                         context->sequence, DIAG_NETWORK_WATCHDOG_MS);
     int8_t mem_res = wizchip_init(tx_size, rx_size);
     diag_watchdog_complete();
-    if (mem_res != 0 || wizchip_get_spi_error() != 0) {
+    if (mem_res != 0 || diag_spi_error() != 0) {
         take_failure_snapshot(context, DIAG_STAGE_DHCP, "memory-init");
         goto cleanup_no_stop;
     }
@@ -805,7 +826,7 @@ diag_stage_result_t diag_stage_dhcp(diag_stage_context_t *context)
             phy_up = true;
             break;
         }
-        if (wizchip_get_spi_error() != 0) {
+        if (diag_spi_error() != 0) {
             take_failure_snapshot(context, DIAG_STAGE_DHCP, "spi-latch");
             goto cleanup_no_stop;
         }
@@ -826,7 +847,7 @@ diag_stage_result_t diag_stage_dhcp(diag_stage_context_t *context)
                         context->sequence, DIAG_NETWORK_WATCHDOG_MS);
     int8_t net_res = ctlnetwork(CN_SET_NETINFO, &dhcp_netinfo);
     diag_watchdog_complete();
-    if (net_res != 0 || wizchip_get_spi_error() != 0) {
+    if (net_res != 0 || diag_spi_error() != 0) {
         take_failure_snapshot(context, DIAG_STAGE_DHCP, "set-netinfo");
         goto cleanup_no_stop;
     }
@@ -856,7 +877,7 @@ diag_stage_result_t diag_stage_dhcp(diag_stage_context_t *context)
         uint8_t new_state = DHCP_run();
         diag_watchdog_complete();
 
-        if (wizchip_get_spi_error() != 0) {
+        if (diag_spi_error() != 0) {
             take_failure_snapshot(context, DIAG_STAGE_DHCP, "spi-latch");
             goto cleanup;
         }
@@ -914,7 +935,7 @@ diag_stage_result_t diag_stage_dhcp(diag_stage_context_t *context)
                                     DIAG_NETWORK_WATCHDOG_MS);
                 int8_t apply_res = ctlnetwork(CN_SET_NETINFO, &dhcp_applied);
                 diag_watchdog_complete();
-                if (apply_res != 0 || wizchip_get_spi_error() != 0) {
+                if (apply_res != 0 || diag_spi_error() != 0) {
                     take_failure_snapshot(context, DIAG_STAGE_DHCP, "lease-apply");
                     goto cleanup;
                 }
@@ -953,7 +974,7 @@ cleanup:
                         context->sequence, DIAG_NETWORK_WATCHDOG_MS);
     DHCP_stop();
     diag_watchdog_complete();
-    if (wizchip_get_spi_error() != 0) {
+    if (diag_spi_error() != 0) {
         take_failure_snapshot(context, DIAG_STAGE_DHCP, "spi-latch");
         final_result = DIAG_STAGE_FAIL;
     }
