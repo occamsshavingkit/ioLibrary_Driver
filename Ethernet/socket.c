@@ -276,9 +276,14 @@ int8_t socket(uint8_t sn, uint8_t protocol, uint16_t port, uint8_t flag) {
     if (flag != 0) {
         uint8_t prot = (protocol & 0x0F);
         if (prot == Sn_MR_TCP) {
-            if (flag & ~(SF_TCP_NODELAY | SF_IO_NONBLOCK)) WIZCHIP_SOCK_UNLOCK(sn); return SOCKERR_SOCKFLAG;
+            if (flag & ~(SF_TCP_NODELAY | SF_IO_NONBLOCK)) {
+                WIZCHIP_SOCK_UNLOCK(sn);
+                return SOCKERR_SOCKFLAG;
+            }
         } else if (prot == Sn_MR_MACRAW || prot == Sn_MR_IPRAW4) {
-            WIZCHIP_SOCK_UNLOCK(sn); return SOCKERR_SOCKFLAG;
+            WIZCHIP_SOCK_UNLOCK(sn);
+            return SOCKERR_SOCKFLAG;
+        }
         }
     }
 #endif
@@ -377,7 +382,6 @@ int8_t socket(uint8_t sn, uint8_t protocol, uint16_t port, uint8_t flag) {
         uint32_t _poll = 0;
         while (getSn_SR(sn) == SOCK_CLOSED && ++_poll < _WIZCHIP_POLL_MAX_);
     }
-    WIZCHIP_SOCK_UNLOCK(sn);
     WIZCHIP_SOCK_UNLOCK(sn); return (int8_t)sn;
 }
 
