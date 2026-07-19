@@ -1337,7 +1337,9 @@ rcvfr_done:
 
 int8_t  ctlsocket(uint8_t sn, ctlsock_type cstype, void* arg) {
     uint8_t tmp = 0;
+    int8_t ret;
     CHECK_SOCKNUM();
+    WIZCHIP_SOCK_LOCK(sn);
     tmp = *((uint8_t*)arg);
     switch (cstype) {
     case CS_SET_IOMODE:
@@ -1346,7 +1348,7 @@ int8_t  ctlsocket(uint8_t sn, ctlsock_type cstype, void* arg) {
         } else if (tmp == SOCK_IO_BLOCK) {
             sock_io_mode &= ~(1 << sn);
         } else {
-            return SOCKERR_ARG;
+            ret = SOCKERR_ARG; goto ctl_done;
         }
         break;
     case CS_GET_IOMODE:
@@ -1363,7 +1365,7 @@ int8_t  ctlsocket(uint8_t sn, ctlsock_type cstype, void* arg) {
         break;
     case CS_CLR_INTERRUPT:
         if (tmp > SIK_ALL) {
-            return SOCKERR_ARG;
+            ret = SOCKERR_ARG; goto ctl_done;
         }
         setSn_IR(sn, tmp);
         break;
@@ -1373,7 +1375,7 @@ int8_t  ctlsocket(uint8_t sn, ctlsock_type cstype, void* arg) {
 #if _WIZCHIP_ != 5100
     case CS_SET_INTMASK:
         if (tmp > SIK_ALL) {
-            return SOCKERR_ARG;
+            ret = SOCKERR_ARG; goto ctl_done;
         }
         setSn_IMR(sn, tmp);
         break;
@@ -1384,7 +1386,7 @@ int8_t  ctlsocket(uint8_t sn, ctlsock_type cstype, void* arg) {
 #ifdef IPV6_AVAILABLE
     case CS_SET_PREFER:
         if ((tmp & 0x03) == 0x01) {
-            return SOCKERR_ARG;
+            ret = SOCKERR_ARG; goto ctl_done;
         }
         setSn_PSR(sn, tmp);
         break;
@@ -1393,9 +1395,12 @@ int8_t  ctlsocket(uint8_t sn, ctlsock_type cstype, void* arg) {
         break;
 #endif
     default:
-        return SOCKERR_ARG;
+        ret = SOCKERR_ARG; goto ctl_done;
     }
-    return SOCK_OK;
+    ret = SOCK_OK;
+ctl_done:
+    WIZCHIP_SOCK_UNLOCK(sn);
+    return ret;
 }
 
 int8_t  setsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
