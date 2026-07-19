@@ -2,8 +2,10 @@
 #include "diag_runner.h"
 #include "diag_usb.h"
 #include "diag_watchdog.h"
+#include "diag_w5500_stages.h"
 
 #include "bsp/board_api.h"
+#include "hardware/clocks.h"
 #include "hardware/watchdog.h"
 #include "pico/time.h"
 
@@ -14,6 +16,17 @@
 #include <stdio.h>
 
 #define DIAG_FIRMWARE_ID "rp2040-w5500-diag"
+
+typedef diag_stage_result_t (*diag_stage_handler_t)(diag_stage_context_t *context);
+
+static const diag_stage_handler_t stage_handlers[DIAG_STAGE_COUNT] = {
+    [DIAG_STAGE_CALLBACK_LAYOUT] = diag_stage_callback_layout,
+    [DIAG_STAGE_TRANSPORT_INIT] = diag_stage_transport_init,
+    [DIAG_STAGE_CHIP_RESET] = diag_stage_chip_reset,
+    [DIAG_STAGE_VERSION] = diag_stage_version,
+    [DIAG_STAGE_MEMORY_INIT] = diag_stage_memory_init,
+    [DIAG_STAGE_PHY_LINK] = diag_stage_phy_link,
+};
 
 static bool emit_event(uint32_t sequence, const char *stage, const char *event,
                        const char *details)
@@ -29,7 +42,7 @@ static bool emit_event(uint32_t sequence, const char *stage, const char *event,
 static void emit_help(uint32_t sequence)
 {
     (void)emit_event(sequence, "shell", "HELP",
-                     "commands=help,status,list,reboot");
+                     "commands=help,status,list,run,repeat,reboot");
 }
 
 static void emit_status(uint32_t sequence, const diag_runner_t *runner)
@@ -60,10 +73,11 @@ static void emit_stage_list(uint32_t sequence)
         }
         written = snprintf(details, sizeof(details),
                            "id=%u name=%s timeout_ms=%" PRIu32
-                           " requires=0x%08" PRIx32 " network=%s",
-                           (unsigned int)stage->id, stage->name,
-                           stage->timeout_ms, stage->required_mask,
-                           stage->requires_network_config ? "true" : "false");
+                            " requires=0x%08" PRIx32 " network=%s available=%s",
+                            (unsigned int)stage->id, stage->name,
+                            stage->timeout_ms, stage->required_mask,
+                            stage->requires_network_config ? "true" : "false",
+                            stage_handlers[id] != NULL ? "true" : "false");
         if (written < 0 || (size_t)written >= sizeof(details) ||
             !emit_event(sequence, "shell", "LIST", details)) {
             return;
@@ -78,27 +92,133 @@ static void emit_stage_list(uint32_t sequence)
     (void)emit_event(sequence, "shell", "LIST", completion);
 }
 
-static void handle_command(diag_runner_t *runner, const char *line)
+static diag_stage_result_t run_stage(diag_stage_context_t *context,
+                                     diag_stage_id_t id)
+{
+    const diag_stage_descriptor_t *descriptor = diag_stage_descriptor(id);
+    diag_stage_handler_t handler;
+    diag_stage_result_t result;
+    char start_details[32];
+    int written;
+
+    context->details[0] = '\0';
+    if (descriptor == NULL) {
+        (void)emit_event(++context->runner->sequence, "shell", "ERROR",
+                         "reason=invalid-stage");
+        return DIAG_STAGE_NOT_RUN;
+    }
+    handler = stage_handlers[id];
+    if (handler == NULL) {
+        char details[64];
+
+        written = snprintf(details, sizeof(details),
+                           "reason=stage-unavailable name=%s", descriptor->name);
+        if (written >= 0 && (size_t)written < sizeof(details)) {
+            (void)emit_event(++context->runner->sequence, "shell", "ERROR",
+                             details);
+        }
+        return DIAG_STAGE_NOT_RUN;
+    }
+    if (!diag_runner_can_run(context->runner, id,
+                             context->network_configured)) {
+        char details[72];
+
+        written = snprintf(details, sizeof(details),
+                           "reason=prerequisite-blocked name=%s",
+                           descriptor->name);
+        if (written >= 0 && (size_t)written < sizeof(details)) {
+            (void)emit_event(++context->runner->sequence, "shell", "ERROR",
+                             details);
+        }
+        return DIAG_STAGE_NOT_RUN;
+    }
+
+    context->sequence = diag_runner_begin(context->runner, id);
+    written = snprintf(start_details, sizeof(start_details),
+                       "timeout_ms=%" PRIu32, descriptor->timeout_ms);
+    if (written < 0 || (size_t)written >= sizeof(start_details) ||
+        !emit_event(context->sequence, descriptor->name, "START",
+                    start_details)) {
+        diag_runner_finish(context->runner, id, DIAG_STAGE_FAIL);
+        return DIAG_STAGE_FAIL;
+    }
+
+    result = handler(context);
+    diag_runner_finish(context->runner, id, result);
+    (void)emit_event(context->sequence, descriptor->name,
+                     result == DIAG_STAGE_PASS ? "PASS" : "FAIL",
+                     context->details);
+    return result;
+}
+
+static diag_stage_result_t run_all(diag_stage_context_t *context)
+{
+    diag_stage_id_t id;
+
+    for (id = DIAG_STAGE_CALLBACK_LAYOUT; id <= DIAG_STAGE_PHY_LINK; ++id) {
+        diag_stage_result_t result = run_stage(context, id);
+
+        if (result != DIAG_STAGE_PASS) {
+            return result;
+        }
+    }
+    return DIAG_STAGE_PASS;
+}
+
+static void handle_command(diag_stage_context_t *context, const char *line)
 {
     diag_command_t command;
-    uint32_t sequence = ++runner->sequence;
+    const diag_stage_descriptor_t *descriptor;
+    uint32_t sequence;
+    uint32_t iteration;
 
     if (!diag_parse_command(line, &command)) {
+        sequence = ++context->runner->sequence;
         (void)emit_event(sequence, "shell", "ERROR", "reason=invalid-command");
         return;
     }
 
     switch (command.kind) {
     case DIAG_COMMAND_HELP:
+        sequence = ++context->runner->sequence;
         emit_help(sequence);
         break;
     case DIAG_COMMAND_STATUS:
-        emit_status(sequence, runner);
+        sequence = ++context->runner->sequence;
+        emit_status(sequence, context->runner);
         break;
     case DIAG_COMMAND_LIST:
+        sequence = ++context->runner->sequence;
         emit_stage_list(sequence);
         break;
+    case DIAG_COMMAND_RUN:
+        descriptor = diag_stage_by_name(command.stage);
+        if (descriptor == NULL) {
+            (void)emit_event(++context->runner->sequence, "shell", "ERROR",
+                             "reason=invalid-stage");
+        } else {
+            (void)run_stage(context, descriptor->id);
+        }
+        break;
+    case DIAG_COMMAND_RUN_ALL:
+        (void)run_all(context);
+        break;
+    case DIAG_COMMAND_REPEAT:
+        descriptor = diag_stage_by_name(command.stage);
+        if (descriptor == NULL) {
+            (void)emit_event(++context->runner->sequence, "shell", "ERROR",
+                             "reason=invalid-stage");
+            break;
+        }
+        for (iteration = 0u; iteration < command.count; ++iteration) {
+            diag_runner_prepare_repeat(context->runner, descriptor->id);
+            if (run_stage(context, descriptor->id) != DIAG_STAGE_PASS) {
+                break;
+            }
+        }
+        break;
     case DIAG_COMMAND_REBOOT:
+        sequence = ++context->runner->sequence;
         (void)emit_event(sequence, "shell", "REBOOT", "reason=requested");
         {
             absolute_time_t deadline = make_timeout_time_ms(10u);
@@ -110,6 +230,7 @@ static void handle_command(diag_runner_t *runner, const char *line)
         watchdog_reboot(0u, 0u, 0u);
         break;
     default:
+        sequence = ++context->runner->sequence;
         (void)emit_event(sequence, "shell", "ERROR", "reason=unsupported-command");
         break;
     }
@@ -122,12 +243,16 @@ int main(void)
     bool recovered;
     bool boot_announced = false;
     bool timeout_announced = false;
+    bool automatic_smoke_done = false;
     char command_line[DIAG_LINE_MAX + 1u];
+    diag_stage_context_t context = {0};
 
+    set_sys_clock_khz(133000u, true);
     board_init();
     diag_usb_init();
 
     diag_runner_init(&runner);
+    context.runner = &runner;
     recovered = diag_watchdog_recover(&recovered_journal);
     if (recovered) {
         runner.sequence = recovered_journal.sequence;
@@ -163,12 +288,17 @@ int main(void)
                 timeout_announced = true;
             }
         }
+        if (diag_usb_connected() && boot_announced && !recovered &&
+            !runner.recovery_mode && !automatic_smoke_done) {
+            automatic_smoke_done = true;
+            (void)run_all(&context);
+        }
         if (!diag_usb_connected()) {
             boot_announced = false;
             timeout_announced = false;
         } else if (boot_announced && (!recovered || timeout_announced) &&
-                   diag_usb_poll_line(command_line, sizeof(command_line))) {
-            handle_command(&runner, command_line);
+                    diag_usb_poll_line(command_line, sizeof(command_line))) {
+            handle_command(&context, command_line);
         }
     }
 }
