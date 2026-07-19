@@ -1458,7 +1458,9 @@ ss_done:
 }
 
 int8_t getsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
+    int8_t ret;
     CHECK_SOCKNUM();
+    WIZCHIP_SOCK_LOCK(sn);
     switch (sotype) {
     case SO_FLAG:
 #ifdef IPV6_AVAILABLE
@@ -1516,7 +1518,7 @@ int8_t getsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
         break;
     case SO_REMAINSIZE:
         if (getSn_MR(sn) == SOCK_CLOSED) {
-            return SOCKERR_SOCKSTATUS;
+            ret = SOCKERR_SOCKSTATUS; goto gs_done;
         }
         if (getSn_MR(sn) & 0x01) {
             *(uint16_t*)arg = getSn_RX_RSR(sn);
@@ -1526,10 +1528,10 @@ int8_t getsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
         break;
     case SO_PACKINFO:
         if (getSn_MR(sn) == SOCK_CLOSED) {
-            return SOCKERR_SOCKSTATUS;
+            ret = SOCKERR_SOCKSTATUS; goto gs_done;
         }
         if (getSn_MR(sn) & 0x01) {
-            return SOCKERR_SOCKMODE;
+            ret = SOCKERR_SOCKMODE; goto gs_done;
         } else {
             *(uint8_t*)arg = sock_pack_info[sn];
         }
@@ -1549,7 +1551,7 @@ int8_t getsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
         //CHECK_SOCKMODE(Sn_MR_TCP);
 #if _WIZCHIP_ != 5300
         if ((getSn_MR(sn) & 0x0F) == Sn_MR_TCP) {
-            return SOCKERR_SOCKMODE;
+            ret = SOCKERR_SOCKMODE; goto gs_done;
         }
 #endif
         *(uint8_t*)arg = sock_pack_info[sn];
@@ -1557,9 +1559,12 @@ int8_t getsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
 
 #endif
     default:
-        return SOCKERR_SOCKOPT;
+        ret = SOCKERR_SOCKOPT; goto gs_done;
     }
-    return SOCK_OK;
+    ret = SOCK_OK;
+gs_done:
+    WIZCHIP_SOCK_UNLOCK(sn);
+    return ret;
 }
 
 #ifdef IPV6_AVAILABLE
