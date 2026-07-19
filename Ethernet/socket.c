@@ -457,10 +457,9 @@ int8_t connect_W6x00(uint8_t sn, uint8_t * addr, uint16_t port, uint8_t addrlen)
 }
 
 static int8_t connect_IO_6(uint8_t sn, uint8_t * addr, uint16_t port, uint8_t addrlen) {
-
-    // printf(" connect - addrlen = %d \r\n" , addrlen );
-
+    int8_t ret;
     CHECK_SOCKNUM();
+    WIZCHIP_SOCK_LOCK(sn);
     CHECK_TCPMODE(); // same macro " CHECK_SOCKMODE(Sn_MR_TCP);"
     CHECK_SOCKINIT();
 
@@ -476,13 +475,13 @@ static int8_t connect_IO_6(uint8_t sn, uint8_t * addr, uint16_t port, uint8_t ad
         taddr = (taddr << 8) + ((uint32_t)addr[2] & 0x000000FF);
         taddr = (taddr << 8) + ((uint32_t)addr[3] & 0x000000FF);
         if (taddr == 0xFFFFFFFF || taddr == 0) {
-            return SOCKERR_IPINVALID;
+            ret = SOCKERR_IPINVALID; goto conn_done;
         }
     }
 #endif
 
     if (port == 0) {
-        return SOCKERR_PORTZERO;
+        ret = SOCKERR_PORTZERO; goto conn_done;
     }
 
     setSn_DPORTR(sn, port);
@@ -494,10 +493,10 @@ static int8_t connect_IO_6(uint8_t sn, uint8_t * addr, uint16_t port, uint8_t ad
             setSn_CR(sn, Sn_CR_CONNECT6);
         } else
 #endif
-            return SOCKERR_SOCKMODE;
+            ret = SOCKERR_SOCKMODE; goto conn_done;
     } else {       // addrlen=4, Sn_MR_TCP4(0001), Sn_MR_TCPD(1101)
         if (getSn_MR(sn) == Sn_MR_TCP6) {
-            return SOCKERR_SOCKMODE;
+            ret = SOCKERR_SOCKMODE; goto conn_done;
         }
         setSn_DIPR(sn, addr);
         //setSn_DPORT(sn,port); //TODO::need verify:LINAN 20250421
@@ -505,26 +504,29 @@ static int8_t connect_IO_6(uint8_t sn, uint8_t * addr, uint16_t port, uint8_t ad
     }
     while (getSn_CR(sn));
     if (sock_io_mode & (1 << sn)) {
-        return SOCK_BUSY;
+        ret = SOCK_BUSY; goto conn_done;
     }
     {
         uint32_t _poll = 0;
         while (getSn_SR(sn) != SOCK_ESTABLISHED) {
             if (getSn_IR(sn) & Sn_IR_TIMEOUT) {
                 setSn_IR(sn, Sn_IR_TIMEOUT);
-                return SOCKERR_TIMEOUT;
+                ret = SOCKERR_TIMEOUT; goto conn_done;
             }
 
             if (getSn_SR(sn) == SOCK_CLOSED) {
-                return SOCKERR_SOCKCLOSED;
+                ret = SOCKERR_SOCKCLOSED; goto conn_done;
             }
             if (++_poll > _WIZCHIP_POLL_MAX_) {
-                return SOCKERR_DEADLINE;
+                ret = SOCKERR_DEADLINE; goto conn_done;
             }
         }
     }
 
-    return SOCK_OK;
+    ret = SOCK_OK;
+conn_done:
+    WIZCHIP_SOCK_UNLOCK(sn);
+    return ret;
 }
 
 int8_t disconnect(uint8_t sn) {
