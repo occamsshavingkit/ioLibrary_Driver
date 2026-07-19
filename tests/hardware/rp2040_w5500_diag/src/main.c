@@ -48,11 +48,12 @@ static void emit_status(uint32_t sequence, const diag_runner_t *runner)
 static void emit_stage_list(uint32_t sequence)
 {
     diag_stage_id_t id;
+    char completion[48];
+    int written;
 
     for (id = DIAG_STAGE_CALLBACK_LAYOUT; id < DIAG_STAGE_COUNT; ++id) {
         const diag_stage_descriptor_t *stage = diag_stage_descriptor(id);
         char details[128];
-        int written;
 
         if (stage == NULL) {
             return;
@@ -68,6 +69,13 @@ static void emit_stage_list(uint32_t sequence)
             return;
         }
     }
+
+    written = snprintf(completion, sizeof(completion),
+                       "complete=true count=%u", (unsigned int)DIAG_STAGE_COUNT);
+    if (written < 0 || (size_t)written >= sizeof(completion)) {
+        return;
+    }
+    (void)emit_event(sequence, "shell", "LIST", completion);
 }
 
 static void handle_command(diag_runner_t *runner, const char *line)
