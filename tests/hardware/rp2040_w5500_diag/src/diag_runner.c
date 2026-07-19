@@ -28,7 +28,7 @@ _Static_assert(sizeof(stages) / sizeof(stages[0]) == DIAG_STAGE_COUNT,
 
 static bool valid_stage(diag_stage_id_t id)
 {
-    return id >= DIAG_STAGE_CALLBACK_LAYOUT && id < DIAG_STAGE_COUNT;
+    return id < DIAG_STAGE_COUNT;
 }
 
 void diag_runner_init(diag_runner_t *runner)

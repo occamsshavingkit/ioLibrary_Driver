@@ -1,0 +1,8 @@
+#ifndef W5500_DIAG_USB_IDENTITY_H
+#define W5500_DIAG_USB_IDENTITY_H
+
+#define DIAG_USB_VID 0x6666u
+#define DIAG_USB_PID 0x4021u
+#define DIAG_USB_PRODUCT "RP2040 W5500 Diagnostic"
+
+#endif
