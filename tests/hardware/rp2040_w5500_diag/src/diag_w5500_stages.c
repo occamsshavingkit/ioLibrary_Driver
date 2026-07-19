@@ -1,4 +1,3 @@
-#pragma GCC diagnostic ignored "-Wunused-function"
 #include "diag_w5500_stages.h"
 
 #include "diag_usb.h"
@@ -8,8 +7,48 @@
 #include "diag_protocol.h"
 #include "pico/unique_id.h"
 #include "pico/time.h"
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
 #include "dhcp.h"
 #include "socket.h"
+#pragma GCC diagnostic pop
+
+static int8_t __attribute__((unused))
+connect_IO_6(uint8_t sn, uint8_t *addr, uint16_t port, uint8_t addrlen)
+{
+    (void)sn;
+    (void)addr;
+    (void)port;
+    (void)addrlen;
+    return SOCKERR_SOCKMODE;
+}
+
+static int32_t __attribute__((unused))
+sendto_IO_6(uint8_t sn, uint8_t *buf, uint16_t len, uint8_t *addr,
+            uint16_t port, uint8_t addrlen)
+{
+    (void)sn;
+    (void)buf;
+    (void)len;
+    (void)addr;
+    (void)port;
+    (void)addrlen;
+    return SOCKERR_SOCKMODE;
+}
+
+static int32_t __attribute__((unused))
+recvfrom_IO_6(uint8_t sn, uint8_t *buf, uint16_t len, uint8_t *addr,
+              uint16_t *port, uint8_t *addrlen)
+{
+    (void)sn;
+    (void)buf;
+    (void)len;
+    (void)addr;
+    (void)port;
+    (void)addrlen;
+    return SOCKERR_SOCKMODE;
+}
 
 #include <stdarg.h>
 #include <stddef.h>
