@@ -141,11 +141,8 @@ if(DIAG_BUILD_FIRMWARE)
         DIAG_EXPECT_SPI_STATUS=$<BOOL:${DIAG_EXPECT_SPI_STATUS}>
     )
     target_compile_features(rp2040_w5500_diag PRIVATE c_std_11)
-    target_compile_options(rp2040_w5500_diag PRIVATE
-        -Wall
-        -Wextra
-        -Werror
-        -pedantic
+    set_source_files_properties(${DIAG_FIRMWARE_SOURCES} PROPERTIES
+        COMPILE_OPTIONS "-Wall;-Wextra;-Werror;-pedantic"
     )
     set_property(SOURCE src/w5500_diag_board.c APPEND PROPERTY
         COMPILE_OPTIONS -Wno-unused-function
