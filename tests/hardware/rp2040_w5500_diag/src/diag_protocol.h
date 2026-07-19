@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 #define DIAG_PROTOCOL_VERSION 1u
-#define DIAG_LINE_MAX 192u
+#define DIAG_LINE_MAX 256u
 #define DIAG_STAGE_NAME_MAX 24u
 
 typedef enum {

@@ -52,6 +52,12 @@ RUN_ALL_STAGES = (
     "udp",
     "dhcp",
 )
+PROVENANCE_EVENT = (
+    "DIAG protocol=1 seq=0 stage=boot event=PASS "
+    "git=0123456789abcdef0123456789abcdef01234567 dirty=1 "
+    "diff=89abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567 "
+    "build=2026-07-19T12:34:56Z"
+)
 
 
 class CommandReader:
@@ -509,9 +515,7 @@ class ReconnectTests(unittest.TestCase):
         start = parse_event(
             "DIAG protocol=1 seq=17 stage=pointer-api event=START"
         )
-        boot = parse_event(
-            "DIAG protocol=1 seq=0 stage=system event=BOOT recovery=true"
-        )
+        boot = parse_event(PROVENANCE_EVENT)
         timeout = parse_event(
             "DIAG protocol=1 seq=17 stage=pointer-api event=TIMEOUT "
             "reset=watchdog phase=write-tx"
@@ -579,10 +583,18 @@ class ControllerHelperTests(unittest.TestCase):
             ["DIAG protocol=1 seq=2 stage=pointer-api event=START"],
         )
 
+    def test_serial_buffer_accepts_exact_provenance_event_without_truncation(self):
+        line_buffer = SerialLineBuffer()
+
+        framed = line_buffer.feed(PROVENANCE_EVENT.encode("ascii") + b"\n")
+
+        self.assertEqual(len(PROVENANCE_EVENT.encode("ascii")) + 1, 194)
+        self.assertEqual(framed, [PROVENANCE_EVENT])
+
     def test_serial_buffer_rejects_oversized_line(self):
         line_buffer = SerialLineBuffer()
         with self.assertRaises(ValueError):
-            line_buffer.feed(b"x" * 193)
+            line_buffer.feed(b"x" * 256)
 
     def test_serial_buffer_rejects_non_ascii_line(self):
         line_buffer = SerialLineBuffer()
@@ -687,10 +699,11 @@ class ControllerRegistrationTests(unittest.TestCase):
             ),
             30: iter(
                 (
-                    b"DIAG protocol=1 seq=0 stage=system event=BOOT "
-                    b"recovery=true\n"
-                    b"DIAG protocol=1 seq=2 stage=pointer-api event=TIMEOUT "
-                    b"reset=watchdog phase=write-tx\n",
+                    (
+                        PROVENANCE_EVENT
+                        + "\nDIAG protocol=1 seq=2 stage=pointer-api "
+                        "event=TIMEOUT reset=watchdog phase=write-tx\n"
+                    ).encode("ascii"),
                 )
             ),
         }
@@ -804,10 +817,7 @@ class ControllerIntegrationTests(unittest.TestCase):
         def simulate_unmatched_recovery():
             reader = CommandReader(master)
             self.assertEqual(reader.read(), "status")
-            self._send_event(
-                master,
-                "DIAG protocol=1 seq=0 stage=system event=BOOT recovery=true",
-            )
+            self._send_event(master, PROVENANCE_EVENT)
             self._send_event(
                 master,
                 "DIAG protocol=1 seq=17 stage=pointer-api event=TIMEOUT "
@@ -837,10 +847,7 @@ class ControllerIntegrationTests(unittest.TestCase):
         def simulate_firmware():
             reader = CommandReader(master)
             self.assertEqual(reader.read(), "status")
-            self._send_event(
-                master,
-                "DIAG protocol=1 seq=0 stage=system event=BOOT recovery=false",
-            )
+            self._send_event(master, PROVENANCE_EVENT)
             self._send_event(
                 master, "DIAG protocol=1 seq=1 stage=shell event=STATUS"
             )
@@ -981,10 +988,7 @@ class ControllerIntegrationTests(unittest.TestCase):
                         raise TimeoutError("host did not observe interrupted START")
                     time.sleep(0.001)
                 os.close(first_master)
-                self._send_event(
-                    second_master,
-                    "DIAG protocol=1 seq=0 stage=system event=BOOT recovery=true",
-                )
+                self._send_event(second_master, PROVENANCE_EVENT)
                 self._send_event(
                     second_master,
                     "DIAG protocol=1 seq=2 stage=pointer-api event=TIMEOUT "
@@ -1012,6 +1016,71 @@ class ControllerIntegrationTests(unittest.TestCase):
                         pass
 
         self.assertEqual(exit_code, 3, transcript.getvalue())
+
+    def test_rejects_recovered_timeout_before_provenance_boot_event(self):
+        first_master, first_slave = pty.openpty()
+        second_master, second_slave = pty.openpty()
+        transcript = StringIO()
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            class_tty = root / "sys" / "class" / "tty"
+            devices = root / "sys" / "devices"
+            dev_root = root / "dev"
+            class_tty.mkdir(parents=True)
+            dev_root.mkdir()
+            ReconnectTests._add_usb_tty(
+                devices, class_tty, "ttyACM0", "6666", "4021"
+            )
+            (dev_root / "ttyACM0").symlink_to(os.ttyname(second_slave))
+            arguments = parse_args(
+                ["--device", os.ttyname(first_slave), "run", "pointer-api"]
+            )
+
+            def simulate_watchdog_reset_without_boot():
+                reader = CommandReader(first_master)
+                self.assertEqual(reader.read(), "status")
+                self._send_event(
+                    first_master,
+                    "DIAG protocol=1 seq=1 stage=shell event=STATUS",
+                )
+                self.assertEqual(reader.read(), "run pointer-api")
+                self._send_event(
+                    first_master,
+                    "DIAG protocol=1 seq=2 stage=pointer-api event=START",
+                )
+                deadline = time.monotonic() + 1.0
+                while "event=START" not in transcript.getvalue():
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("host did not observe interrupted START")
+                    time.sleep(0.001)
+                os.close(first_master)
+                self._send_event(
+                    second_master,
+                    "DIAG protocol=1 seq=2 stage=pointer-api event=TIMEOUT "
+                    "reset=watchdog phase=write-tx",
+                )
+
+            try:
+                exit_code = self._run_with_simulator(
+                    arguments,
+                    transcript,
+                    simulate_watchdog_reset_without_boot,
+                    sys_class_tty=class_tty,
+                    dev_root=dev_root,
+                )
+            finally:
+                for descriptor in (
+                    first_master,
+                    first_slave,
+                    second_master,
+                    second_slave,
+                ):
+                    try:
+                        os.close(descriptor)
+                    except OSError:
+                        pass
+
+        self.assertEqual(exit_code, 4, transcript.getvalue())
 
     def _run_with_simulator(
         self, arguments, transcript, simulator, **controller_options

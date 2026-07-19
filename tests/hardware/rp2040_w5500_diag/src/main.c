@@ -1,9 +1,10 @@
+#include "diag_build_info.h"
+#include "diag_net.h"
 #include "diag_protocol.h"
 #include "diag_runner.h"
 #include "diag_usb.h"
 #include "diag_watchdog.h"
 #include "diag_w5500_stages.h"
-#include "diag_net.h"
 
 #include "bsp/board_api.h"
 #include "hardware/clocks.h"
@@ -17,8 +18,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-
-#define DIAG_FIRMWARE_ID "rp2040-w5500-diag"
 
 typedef diag_stage_result_t (*diag_stage_handler_t)(diag_stage_context_t *context);
 
@@ -45,6 +44,16 @@ static bool emit_event(uint32_t sequence, const char *stage, const char *event,
     char line[DIAG_LINE_MAX + 1u];
 
     if (diag_format_event(line, sizeof(line), sequence, stage, event, details) < 0) {
+        return false;
+    }
+    return diag_usb_write_line(line);
+}
+
+static bool emit_boot_event(void)
+{
+    char line[DIAG_LINE_MAX + 1u];
+
+    if (diag_format_boot_event(line, sizeof(line)) < 0) {
         return false;
     }
     return diag_usb_write_line(line);
@@ -341,13 +350,7 @@ int main(void)
     for (;;) {
         diag_usb_task();
         if (diag_usb_connected() && !boot_announced) {
-            char boot_details[80];
-            int written = snprintf(boot_details, sizeof(boot_details),
-                                   "firmware=%s recovery=%s", DIAG_FIRMWARE_ID,
-                                   runner.recovery_mode ? "true" : "false");
-
-            if (written >= 0 && (size_t)written < sizeof(boot_details) &&
-                emit_event(0u, "system", "BOOT", boot_details)) {
+            if (emit_boot_event()) {
                 boot_announced = true;
             }
         }

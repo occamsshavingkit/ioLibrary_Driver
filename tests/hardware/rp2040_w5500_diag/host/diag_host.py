@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import os
+import re
 import selectors
 import socket
 import sys
@@ -18,9 +19,11 @@ from typing import TextIO
 
 
 _REQUIRED_EVENT_KEYS = frozenset(("protocol", "seq", "stage", "event"))
+_BOOT_EVENT_KEYS = _REQUIRED_EVENT_KEYS | frozenset(("git", "dirty", "diff", "build"))
 _UINT32_MAX = (1 << 32) - 1
 _UDP_MAGIC = bytes.fromhex("44 55 50 31")
 _RECONNECT_TIMEOUT_SECONDS = 10.0
+DIAG_LINE_MAX = 256
 _RUN_ALL_STAGES = (
     "callback-layout",
     "transport-init",
@@ -54,16 +57,16 @@ class SerialLineBuffer:
                 break
             raw_line = bytes(self._buffer[:newline])
             del self._buffer[: newline + 1]
+            if newline + 1 > DIAG_LINE_MAX:
+                raise ValueError(f"CDC line exceeds {DIAG_LINE_MAX} bytes")
             if raw_line.endswith(b"\r"):
                 raw_line = raw_line[:-1]
-            if len(raw_line) > 192:
-                raise ValueError("CDC line exceeds 192 bytes")
             try:
                 lines.append(raw_line.decode("ascii"))
             except UnicodeDecodeError as error:
                 raise ValueError("CDC line is not ASCII") from error
-        if len(self._buffer) > 192:
-            raise ValueError("CDC line exceeds 192 bytes")
+        if len(self._buffer) >= DIAG_LINE_MAX:
+            raise ValueError(f"CDC line exceeds {DIAG_LINE_MAX} bytes")
         return lines
 
 
@@ -128,9 +131,28 @@ def matches_recovered_timeout(
     )
 
 
+def matches_boot_event(event: dict[str, str]) -> bool:
+    """Recognize the exact provenance-bearing out-of-band boot event."""
+    return (
+        event.keys() == _BOOT_EVENT_KEYS
+        and event["protocol"] == "1"
+        and event["seq"] == "0"
+        and event["stage"] == "boot"
+        and event["event"] == "PASS"
+        and re.fullmatch(r"[0-9A-Fa-f]{40}", event["git"]) is not None
+        and event["dirty"] in ("0", "1")
+        and re.fullmatch(r"[0-9A-Fa-f]{64}", event["diff"]) is not None
+        and re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",
+            event["build"],
+        )
+        is not None
+    )
+
+
 def update_sequence(previous: int | None, event: dict[str, str]) -> int | None:
-    """Advance sequence state while treating reboot BOOT as out-of-band."""
-    if event["stage"] == "system" and event["event"] == "BOOT":
+    """Advance sequence state while treating the exact boot event as out-of-band."""
+    if matches_boot_event(event):
         return previous
     return validate_sequence(previous, int(event["seq"]))
 
@@ -370,6 +392,7 @@ def run_controller(
     active_operation: tuple[str, int] | None = None
     interrupted_operation: tuple[str, int] | None = None
     reconnect_deadline: float | None = None
+    recovery_boot_seen = False
     next_rescan = 0.0
     state = "barrier"
     tracker = ResultTracker(arguments)
@@ -403,7 +426,7 @@ def run_controller(
 
     def begin_reconnect() -> bool:
         nonlocal interrupted_operation, reconnect_deadline, next_rescan
-        nonlocal line_buffer, state
+        nonlocal line_buffer, recovery_boot_seen, state
         if active_operation is None:
             return False
         interrupted_operation = active_operation
@@ -411,6 +434,7 @@ def run_controller(
         next_rescan = 0.0
         pending_write.clear()
         line_buffer = SerialLineBuffer()
+        recovery_boot_seen = False
         state = "reconnect"
         close_cdc()
         return True
@@ -501,7 +525,10 @@ def run_controller(
                             )
 
                             if state == "recovery":
-                                if event_stage == "system" and event_name == "BOOT":
+                                if not recovery_boot_seen:
+                                    if not matches_boot_event(event):
+                                        return 4
+                                    recovery_boot_seen = True
                                     continue
                                 if (
                                     event_name != "TIMEOUT"

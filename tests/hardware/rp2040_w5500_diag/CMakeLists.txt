@@ -1,7 +1,11 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.20)
 
 option(DIAG_BUILD_FIRMWARE "Build RP2040 W5500 diagnostic firmware" OFF)
 option(DIAG_EXPECT_SPI_STATUS "Driver revision claims SPI-status callback support" ON)
+set(DIAG_GIT_SHA "" CACHE STRING "40-digit Git commit SHA embedded in firmware")
+set(DIAG_GIT_DIRTY "" CACHE STRING "Git worktree dirty flag (0 or 1)")
+set(DIAG_DIFF_SHA256 "" CACHE STRING "64-digit SHA-256 of the binary Git diff")
+set(DIAG_BUILD_UTC "" CACHE STRING "UTC firmware build time (YYYY-MM-DDTHH:MM:SSZ)")
 
 if(DIAG_BUILD_FIRMWARE)
     if(NOT PICO_SDK_PATH)
@@ -13,15 +17,61 @@ if(DIAG_BUILD_FIRMWARE)
     if(NOT WIZNET_PICO_C_PATH)
         message(FATAL_ERROR "WIZNET_PICO_C_PATH is required for the firmware build")
     endif()
+    foreach(variable IN ITEMS
+            DIAG_GIT_SHA
+            DIAG_GIT_DIRTY
+            DIAG_DIFF_SHA256
+            DIAG_BUILD_UTC)
+        if("${${variable}}" STREQUAL "")
+            message(FATAL_ERROR "${variable} is required for the firmware build")
+        endif()
+    endforeach()
+else()
+    set(DIAG_GIT_SHA "0123456789abcdef0123456789abcdef01234567")
+    set(DIAG_GIT_DIRTY "1")
+    set(DIAG_DIFF_SHA256
+        "89abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567")
+    set(DIAG_BUILD_UTC "2026-07-19T12:34:56Z")
+endif()
+
+string(LENGTH "${DIAG_GIT_SHA}" DIAG_GIT_SHA_LENGTH)
+if(NOT DIAG_GIT_SHA_LENGTH EQUAL 40 OR
+   NOT DIAG_GIT_SHA MATCHES "^[0-9A-Fa-f]+$")
+    message(FATAL_ERROR "DIAG_GIT_SHA must contain exactly 40 hexadecimal digits")
+endif()
+if(NOT DIAG_GIT_DIRTY STREQUAL "0" AND NOT DIAG_GIT_DIRTY STREQUAL "1")
+    message(FATAL_ERROR "DIAG_GIT_DIRTY must be 0 or 1")
+endif()
+string(LENGTH "${DIAG_DIFF_SHA256}" DIAG_DIFF_SHA256_LENGTH)
+if(NOT DIAG_DIFF_SHA256_LENGTH EQUAL 64 OR
+   NOT DIAG_DIFF_SHA256 MATCHES "^[0-9A-Fa-f]+$")
+    message(FATAL_ERROR
+        "DIAG_DIFF_SHA256 must contain exactly 64 hexadecimal digits")
+endif()
+string(LENGTH "${DIAG_BUILD_UTC}" DIAG_BUILD_UTC_LENGTH)
+if(NOT DIAG_BUILD_UTC_LENGTH EQUAL 20 OR
+   NOT DIAG_BUILD_UTC MATCHES
+       "^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$")
+    message(FATAL_ERROR "DIAG_BUILD_UTC must use YYYY-MM-DDTHH:MM:SSZ")
+endif()
+
+if(DIAG_BUILD_FIRMWARE)
     include(${PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 endif()
 
 project(rp2040_w5500_diag LANGUAGES C CXX ASM)
 
+configure_file(
+    src/diag_build_info.h.in
+    "${CMAKE_CURRENT_BINARY_DIR}/diag_build_info.h"
+    @ONLY
+)
+
 if(DIAG_BUILD_FIRMWARE)
     pico_sdk_init()
 
     set(DIAG_FIRMWARE_SOURCES
+        src/diag_build_info.c
         src/diag_journal.c
         src/diag_net.c
         src/diag_protocol.c
@@ -74,6 +124,7 @@ if(DIAG_BUILD_FIRMWARE)
 
     add_executable(rp2040_w5500_diag ${DIAG_FIRMWARE_SOURCES})
     target_include_directories(rp2040_w5500_diag PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}"
         include
         src
     )
@@ -90,8 +141,11 @@ if(DIAG_BUILD_FIRMWARE)
         DIAG_EXPECT_SPI_STATUS=$<BOOL:${DIAG_EXPECT_SPI_STATUS}>
     )
     target_compile_features(rp2040_w5500_diag PRIVATE c_std_11)
-    set_source_files_properties(${DIAG_FIRMWARE_SOURCES} PROPERTIES
-        COMPILE_OPTIONS "-Wall;-Wextra;-Werror;-pedantic"
+    target_compile_options(rp2040_w5500_diag PRIVATE
+        -Wall
+        -Wextra
+        -Werror
+        -pedantic
     )
     set_property(SOURCE src/w5500_diag_board.c APPEND PROPERTY
         COMPILE_OPTIONS -Wno-unused-function
@@ -117,6 +171,14 @@ else()
     add_executable(test_diag_protocol
         src/diag_protocol.c
         tests/test_diag_protocol.c
+    )
+    add_executable(test_diag_build_info
+        src/diag_build_info.c
+        src/diag_protocol.c
+        tests/test_diag_build_info.c
+    )
+    target_include_directories(test_diag_build_info PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}"
     )
     add_executable(test_diag_runner
         src/diag_runner.c
@@ -150,6 +212,7 @@ else()
     )
 
     foreach(target IN ITEMS
+            test_diag_build_info
             test_diag_protocol
             test_diag_runner
             test_diag_stage_phases
@@ -168,6 +231,7 @@ else()
     endforeach()
 
     add_test(NAME diag_protocol COMMAND test_diag_protocol)
+    add_test(NAME diag_build_info COMMAND test_diag_build_info)
     add_test(NAME diag_runner COMMAND test_diag_runner)
     add_test(NAME diag_stage_phases COMMAND test_diag_stage_phases)
     add_test(NAME diag_journal COMMAND test_diag_journal)
