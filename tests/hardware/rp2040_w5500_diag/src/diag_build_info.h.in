@@ -1,0 +1,13 @@
+#ifndef W5500_DIAG_BUILD_INFO_H
+#define W5500_DIAG_BUILD_INFO_H
+
+#include <stddef.h>
+
+#define DIAG_GIT_SHA "@DIAG_GIT_SHA@"
+#define DIAG_GIT_DIRTY "@DIAG_GIT_DIRTY@"
+#define DIAG_DIFF_SHA256 "@DIAG_DIFF_SHA256@"
+#define DIAG_BUILD_UTC "@DIAG_BUILD_UTC@"
+
+int diag_format_boot_event(char *buffer, size_t capacity);
+
+#endif

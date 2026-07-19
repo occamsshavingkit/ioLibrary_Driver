@@ -1,4 +1,9 @@
 # Windows image file caches
+.worktrees/
+tests/hardware/rp2040_w5500_diag/build/
+tests/hardware/rp2040_w5500_diag/*.log
+tests/hardware/rp2040_w5500_diag/host/__pycache__/
+
 Thumbs.db
 ehthumbs.db
 
