@@ -685,6 +685,8 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
 int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len) { //lihan
     uint8_t  tmp = 0;
     uint16_t recvsize = 0;
+    int32_t ret;
+    WIZCHIP_SOCK_LOCK(sn);
     /*
         The below codes can be omitted for optmization of speed
     */
@@ -717,15 +719,17 @@ int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len) { //lihan
                 if (tmp == SOCK_CLOSE_WAIT) {
                     if (recvsize != 0) {
                         break;
-                    } else if (getSn_TX_FSR(sn) == getSn_TxMAX(sn)) {
+                    } else if (getSn_TX_FSR(sn) == wizchip_txmax_cache[sn]) {
+                        WIZCHIP_SOCK_UNLOCK(sn);
                         close(sn);
                         return SOCKERR_SOCKSTATUS;
                     }
                     if (++_poll > _WIZCHIP_POLL_MAX_) {
-                        return SOCKERR_DEADLINE;
+                        ret = SOCKERR_DEADLINE; goto recv_done;
                     }
                     continue;
                 } else {
+                    WIZCHIP_SOCK_UNLOCK(sn);
                     close(sn);
                     return SOCKERR_SOCKSTATUS;
                 }
@@ -735,18 +739,18 @@ int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len) { //lihan
                 break;
             }
             if (sock_io_mode & (1 << sn)) {
-                return SOCK_BUSY;
+                ret = SOCK_BUSY; goto recv_done;
             }
 #else
             if (recvsize != 0) {
                 break;
             }
             if (sock_io_mode & (1 << sn)) {
-                return SOCK_BUSY;
+                ret = SOCK_BUSY; goto recv_done;
             }
 #endif
             if (++_poll > _WIZCHIP_POLL_MAX_) {
-                return SOCKERR_DEADLINE;
+                ret = SOCKERR_DEADLINE; goto recv_done;
             }
         };
 #if _WIZCHIP_ == 5300
@@ -808,7 +812,10 @@ int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len) { //lihan
 
     //M20150409 : Explicit Type Casting
     //return len;
-    return (int32_t)len;
+    ret = (int32_t)len;
+recv_done:
+    WIZCHIP_SOCK_UNLOCK(sn);
+    return ret;
 }
 
 
