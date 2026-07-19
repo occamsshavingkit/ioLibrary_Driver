@@ -217,3 +217,32 @@ DIAG protocol=1 seq=1 stage=callback-layout event=FAIL code=no-status-api
 ```
 
 HIL is intentionally not performed in this task.
+
+## Controller HIL Verification
+
+The controller placed the board in RP2 BOOTSEL mode and flashed the reviewed
+artifact with verification enabled. The device re-enumerated as:
+
+```text
+Bus 001 Device 018: ID 6666:4021 occamsshavingkit RP2040 W5500 Diagnostic
+```
+
+A raw `os.open`/`termios` reader, matching the planned Task 8 controller rather
+than adding a pyserial dependency, captured the fresh-boot transcript:
+
+```text
+DIAG protocol=1 seq=0 stage=system event=BOOT firmware=rp2040-w5500-diag recovery=false
+DIAG protocol=1 seq=1 stage=callback-layout event=START timeout_ms=0
+DIAG protocol=1 seq=1 stage=callback-layout event=FAIL code=no-status-api
+```
+
+The capture remained open for three seconds and received no `transport-init` or
+later stage record. A manual `run transport-init` returned
+`reason=prerequisite-blocked`; a manual `run callback-layout` reproduced the
+same deterministic `no-status-api` failure.
+
+During diagnosis of an incomplete pyserial display, Linux `usbmon` independently
+confirmed BOOT and the complete automatic seq=1 START/FAIL transcript crossed
+the CDC bulk-IN endpoint. The missing pyserial lines were a reader artifact,
+not firmware loss. Task 5 therefore passes its hardware acceptance gate without
+performing a W5500 transfer on the audited revision.
