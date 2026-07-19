@@ -1981,12 +1981,12 @@ uint16_t getSn_TX_FSR(uint8_t sn);
     @param (uint16_t)txwr Value to set @ref Sn_TX_WR
     @sa GetSn_TX_WR()
 */
-#define setSn_TX_WR(sn, txwr) { \
-		WIZCHIP_CRITICAL_ENTER(); \
-		WIZCHIP_WRITE(Sn_TX_WR(sn),   (uint8_t)(txwr>>8)); \
-		WIZCHIP_WRITE(WIZCHIP_OFFSET_INC(Sn_TX_WR(sn),1), (uint8_t) txwr); \
-		WIZCHIP_CRITICAL_EXIT(); \
-		}
+#define setSn_TX_WR(sn, txwr) do { \
+		uint8_t _w[2]; \
+		_w[0] = (uint8_t)((txwr) >> 8); \
+		_w[1] = (uint8_t)(txwr); \
+		WIZCHIP_WRITE_BUF(Sn_TX_WR(sn), _w, 2); \
+		} while(0)
 
 /**
     @ingroup Socket_register_access_function
@@ -2020,12 +2020,12 @@ uint16_t getSn_RX_RSR(uint8_t sn);
     @param (uint16_t)rxrd Value to set @ref Sn_RX_RD
     @sa getSn_RX_RD()
 */
-#define setSn_RX_RD(sn, rxrd) { \
-		WIZCHIP_CRITICAL_ENTER(); \
-		WIZCHIP_WRITE(Sn_RX_RD(sn),   (uint8_t)(rxrd>>8)); \
-		WIZCHIP_WRITE(WIZCHIP_OFFSET_INC(Sn_RX_RD(sn),1), (uint8_t) rxrd); \
-		WIZCHIP_CRITICAL_EXIT(); \
-		}
+#define setSn_RX_RD(sn, rxrd) do { \
+		uint8_t _w[2]; \
+		_w[0] = (uint8_t)((rxrd) >> 8); \
+		_w[1] = (uint8_t)(rxrd); \
+		WIZCHIP_WRITE_BUF(Sn_RX_RD(sn), _w, 2); \
+		} while(0)
 
 /**
     @ingroup Socket_register_access_function

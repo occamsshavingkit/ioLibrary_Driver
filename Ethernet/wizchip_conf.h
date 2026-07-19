@@ -1419,23 +1419,6 @@ void wizchip_gettimeout(wiz_NetTimeout* nettime);
 
 #endif
 
-/**
-    @ingroup extra_functions
-    @brief Get latched SPI error status (AUD-056).
-    Returns 0 if no SPI error has occurred since last clear.
-    Non-zero if a transfer invoked the error callback.
-    @sa wizchip_clear_spi_error()
-*/
-uint8_t wizchip_get_spi_error(void);
-
-/**
-    @ingroup extra_functions
-    @brief Clear the latched SPI error status (AUD-056).
-    Resets the internal error flag to 0.
-    @sa wizchip_get_spi_error()
-*/
-void wizchip_clear_spi_error(void);
-
 #ifdef __cplusplus
 }
 #endif
