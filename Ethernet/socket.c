@@ -284,7 +284,7 @@ int8_t socket(uint8_t sn, uint8_t protocol, uint16_t port, uint8_t flag) {
             WIZCHIP_SOCK_UNLOCK(sn);
             return SOCKERR_SOCKFLAG;
         }
-        }
+
     }
 #endif
 
@@ -563,6 +563,8 @@ int8_t disconnect(uint8_t sn) {
 int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
     uint8_t tmp = 0;
     uint16_t freesize = 0;
+    int32_t ret;
+    WIZCHIP_SOCK_LOCK(sn);
     /*
         The below codes can be omitted for optmization of speed
     */
@@ -575,7 +577,7 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
     CHECK_SOCKDATA();
     tmp = getSn_SR(sn);
     if (tmp != SOCK_ESTABLISHED && tmp != SOCK_CLOSE_WAIT) {
-        return SOCKERR_SOCKSTATUS;
+        ret = SOCKERR_SOCKSTATUS; goto send_done;
     }
     if (sock_is_sending & (1 << sn)) {
         tmp = getSn_IR(sn);
@@ -590,15 +592,16 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
         uint32_t _poll = 0;
         while (getSn_CR(sn) && ++_poll < _WIZCHIP_POLL_MAX_);
     }
-                return SOCK_BUSY;
+                ret = SOCK_BUSY; goto send_done;
             }
 #endif
             sock_is_sending &= ~(1 << sn);
         } else if (tmp & Sn_IR_TIMEOUT) {
+            WIZCHIP_SOCK_UNLOCK(sn);
             close(sn);
             return SOCKERR_SOCKCLOSED;
         } else {
-            return SOCK_BUSY;
+            ret = SOCK_BUSY; goto send_done;
         }
     }
 #endif
@@ -611,12 +614,14 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
         tmp = getSn_SR(sn);
         if ((tmp != SOCK_ESTABLISHED) && (tmp != SOCK_CLOSE_WAIT)) {
             if (tmp == SOCK_CLOSED) {
+                WIZCHIP_SOCK_UNLOCK(sn);
                 close(sn);
+                return SOCKERR_SOCKSTATUS;
             }
-            return SOCKERR_SOCKSTATUS;
+            ret = SOCKERR_SOCKSTATUS; goto send_done;
         }
         if ((sock_io_mode & (1 << sn)) && (len > freesize)) {
-            return SOCK_BUSY;    //TODO::need verify:LINAN 20250421
+            ret = SOCK_BUSY; goto send_done;
         }
         // if( sock_io_mode & (1<<sn) ) return SOCK_BUSY;  //TODO::need verify:LINAN 20250421
         if (len <= freesize) {
@@ -640,7 +645,10 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
     while (getSn_CR(sn));  // wait to process the command...
     sock_is_sending |= (1 << sn);
 
-    return len;
+    ret = len;
+send_done:
+    WIZCHIP_SOCK_UNLOCK(sn);
+    return ret;
 }
 #else //for speed optimization, by lihan
 int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
