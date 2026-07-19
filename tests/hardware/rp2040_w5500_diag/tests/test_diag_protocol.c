@@ -51,6 +51,8 @@ int main(void)
     assert(strcmp(line, "DIAG protocol=1 seq=18 stage=udp event=PASS\n") == 0);
     assert(diag_format_event(line, sizeof(line), 19u, "pointer api", "FAIL", "code=name") == -1);
     assert(diag_format_event(line, sizeof(line), 19u, "pointer-api", "BAD EVENT", "code=name") == -1);
+    assert(diag_format_event(line, sizeof(line), 19u, "", "FAIL", "code=name") == -1);
+    assert(diag_format_event(line, sizeof(line), 19u, "pointer-api", "", "code=name") == -1);
     assert(diag_format_event(line, sizeof(line), 19u, "pointer-api", "FAIL", "code=bad\nline") == -1);
     assert(diag_format_event(line, 8u, 19u, "pointer-api", "FAIL", "code=small") == -1);
     return 0;

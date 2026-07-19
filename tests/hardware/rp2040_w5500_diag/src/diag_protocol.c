@@ -93,9 +93,6 @@ static bool parse_ipv4(const char *text, uint8_t address[4])
 
 static bool has_whitespace(const char *text)
 {
-    if (*text == '\0') {
-        return true;
-    }
     while (*text != '\0') {
         if (isspace((unsigned char)*text)) {
             return true;
@@ -164,7 +161,8 @@ int diag_format_event(char *buffer, size_t capacity, uint32_t sequence,
     int written;
 
     if (buffer == NULL || capacity == 0u || stage == NULL || event == NULL ||
-        details == NULL || has_whitespace(stage) || has_whitespace(event) ||
+        details == NULL || stage[0] == '\0' || event[0] == '\0' ||
+        has_whitespace(stage) || has_whitespace(event) ||
         strchr(details, '\n') != NULL || strchr(details, '\r') != NULL) {
         return -1;
     }
