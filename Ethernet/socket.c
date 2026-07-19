@@ -529,7 +529,9 @@ static int8_t connect_IO_6(uint8_t sn, uint8_t * addr, uint16_t port, uint8_t ad
 
 int8_t disconnect(uint8_t sn) {
     uint8_t tmp;
+    int8_t ret;
     CHECK_SOCKNUM();
+    WIZCHIP_SOCK_LOCK(sn);
     CHECK_TCPMODE();
     tmp = getSn_SR(sn);
     if (tmp != SOCK_CLOSED) {
@@ -540,22 +542,25 @@ int8_t disconnect(uint8_t sn) {
         }
         sock_is_sending &= ~(1 << sn);
         if (sock_io_mode & (1 << sn)) {
-            return SOCK_BUSY;
+            ret = SOCK_BUSY; goto disconn_done;
         }
         {
             uint32_t _poll = 0;
             while (getSn_SR(sn) != SOCK_CLOSED) {
                 if (getSn_IR(sn) & Sn_IR_TIMEOUT) {
-                    close(sn);
+                    WIZCHIP_SOCK_UNLOCK(sn); close(sn);
                     return SOCKERR_TIMEOUT;
                 }
                 if (++_poll > _WIZCHIP_POLL_MAX_) {
-                    return SOCKERR_DEADLINE;
+                    ret = SOCKERR_DEADLINE; goto disconn_done;
                 }
             }
         }
     }
-    return SOCK_OK;
+    ret = SOCK_OK;
+disconn_done:
+    WIZCHIP_SOCK_UNLOCK(sn);
+    return ret;
 }
 
 
