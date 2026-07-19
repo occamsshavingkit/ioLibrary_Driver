@@ -61,6 +61,34 @@ const diag_stage_descriptor_t *diag_stage_by_name(const char *name)
     return NULL;
 }
 
+const char *diag_stage_phase_name(diag_stage_id_t stage, uint16_t phase)
+{
+    if (stage <= DIAG_STAGE_PHY_LINK) {
+        return phase == 1u ? "driver-call" : "unknown";
+    }
+    if (stage < DIAG_STAGE_SINGLE_REGISTER ||
+        stage > DIAG_STAGE_POINTER_API) {
+        return "unknown";
+    }
+
+    switch (phase) {
+    case DIAG_PHASE_SAVE:
+        return "save";
+    case DIAG_PHASE_WRITE_TX:
+        return "write-tx";
+    case DIAG_PHASE_READ_TX:
+        return "read-tx";
+    case DIAG_PHASE_WRITE_RX:
+        return "write-rx";
+    case DIAG_PHASE_READ_RX:
+        return "read-rx";
+    case DIAG_PHASE_RESTORE:
+        return "restore";
+    default:
+        return "unknown";
+    }
+}
+
 bool diag_runner_can_run(const diag_runner_t *runner, diag_stage_id_t id,
                          bool network_configured)
 {

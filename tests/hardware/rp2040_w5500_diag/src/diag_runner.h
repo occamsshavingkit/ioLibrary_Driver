@@ -29,6 +29,15 @@ typedef enum {
     DIAG_STAGE_TIMEOUT
 } diag_stage_result_t;
 
+enum {
+    DIAG_PHASE_SAVE = 1,
+    DIAG_PHASE_WRITE_TX = 2,
+    DIAG_PHASE_READ_TX = 3,
+    DIAG_PHASE_WRITE_RX = 4,
+    DIAG_PHASE_READ_RX = 5,
+    DIAG_PHASE_RESTORE = 6
+};
+
 typedef struct {
     diag_stage_id_t id;
     const char *name;
@@ -46,6 +55,7 @@ typedef struct {
 void diag_runner_init(diag_runner_t *runner);
 const diag_stage_descriptor_t *diag_stage_descriptor(diag_stage_id_t id);
 const diag_stage_descriptor_t *diag_stage_by_name(const char *name);
+const char *diag_stage_phase_name(diag_stage_id_t stage, uint16_t phase);
 bool diag_runner_can_run(const diag_runner_t *runner, diag_stage_id_t id,
                          bool network_configured);
 uint32_t diag_runner_begin(diag_runner_t *runner, diag_stage_id_t id);

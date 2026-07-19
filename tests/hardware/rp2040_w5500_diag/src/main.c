@@ -26,6 +26,11 @@ static const diag_stage_handler_t stage_handlers[DIAG_STAGE_COUNT] = {
     [DIAG_STAGE_VERSION] = diag_stage_version,
     [DIAG_STAGE_MEMORY_INIT] = diag_stage_memory_init,
     [DIAG_STAGE_PHY_LINK] = diag_stage_phy_link,
+    [DIAG_STAGE_SINGLE_REGISTER] = diag_stage_single_register,
+    [DIAG_STAGE_BURST_REGISTER] = diag_stage_burst_register,
+    [DIAG_STAGE_POINTER_SEQUENTIAL] = diag_stage_pointer_sequential,
+    [DIAG_STAGE_POINTER_BURST] = diag_stage_pointer_burst,
+    [DIAG_STAGE_POINTER_API] = diag_stage_pointer_api,
 };
 
 static bool emit_event(uint32_t sequence, const char *stage, const char *event,
@@ -154,15 +159,21 @@ static diag_stage_result_t run_stage(diag_stage_context_t *context,
 static diag_stage_result_t run_all(diag_stage_context_t *context)
 {
     diag_stage_id_t id;
+    diag_stage_result_t overall = DIAG_STAGE_PASS;
 
-    for (id = DIAG_STAGE_CALLBACK_LAYOUT; id <= DIAG_STAGE_PHY_LINK; ++id) {
+    diag_runner_prepare_repeat(context->runner, DIAG_STAGE_CALLBACK_LAYOUT);
+    for (id = DIAG_STAGE_CALLBACK_LAYOUT; id <= DIAG_STAGE_POINTER_API; ++id) {
+        if (!diag_runner_can_run(context->runner, id,
+                                 context->network_configured)) {
+            continue;
+        }
         diag_stage_result_t result = run_stage(context, id);
 
-        if (result != DIAG_STAGE_PASS) {
-            return result;
+        if (result == DIAG_STAGE_FAIL || result == DIAG_STAGE_TIMEOUT) {
+            overall = DIAG_STAGE_FAIL;
         }
     }
-    return DIAG_STAGE_PASS;
+    return overall;
 }
 
 static void handle_command(diag_stage_context_t *context, const char *line)
@@ -197,6 +208,7 @@ static void handle_command(diag_stage_context_t *context, const char *line)
             (void)emit_event(++context->runner->sequence, "shell", "ERROR",
                              "reason=invalid-stage");
         } else {
+            diag_runner_prepare_repeat(context->runner, descriptor->id);
             (void)run_stage(context, descriptor->id);
         }
         break;
@@ -278,8 +290,10 @@ int main(void)
                 diag_stage_descriptor(recovered_journal.stage);
             char timeout_details[80];
             int written = snprintf(timeout_details, sizeof(timeout_details),
-                                   "phase=%u recovery=watchdog",
-                                   (unsigned int)recovered_journal.phase);
+                                    "reset=watchdog phase=%s",
+                                    diag_stage_phase_name(
+                                        recovered_journal.stage,
+                                        recovered_journal.phase));
 
             if (stage != NULL && written >= 0 &&
                 (size_t)written < sizeof(timeout_details) &&

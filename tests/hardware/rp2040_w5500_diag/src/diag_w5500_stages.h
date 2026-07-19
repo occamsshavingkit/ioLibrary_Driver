@@ -27,5 +27,10 @@ diag_stage_result_t diag_stage_chip_reset(diag_stage_context_t *context);
 diag_stage_result_t diag_stage_version(diag_stage_context_t *context);
 diag_stage_result_t diag_stage_memory_init(diag_stage_context_t *context);
 diag_stage_result_t diag_stage_phy_link(diag_stage_context_t *context);
+diag_stage_result_t diag_stage_single_register(diag_stage_context_t *context);
+diag_stage_result_t diag_stage_burst_register(diag_stage_context_t *context);
+diag_stage_result_t diag_stage_pointer_sequential(diag_stage_context_t *context);
+diag_stage_result_t diag_stage_pointer_burst(diag_stage_context_t *context);
+diag_stage_result_t diag_stage_pointer_api(diag_stage_context_t *context);
 
 #endif

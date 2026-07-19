@@ -120,6 +120,10 @@ else()
         src/diag_runner.c
         tests/test_diag_runner.c
     )
+    add_executable(test_diag_stage_phases
+        src/diag_runner.c
+        tests/test_diag_stage_phases.c
+    )
     add_executable(test_diag_journal
         src/diag_journal.c
         tests/test_diag_journal.c
@@ -141,6 +145,7 @@ else()
     foreach(target IN ITEMS
             test_diag_protocol
             test_diag_runner
+            test_diag_stage_phases
             test_diag_journal
             test_diag_usb_identity
             test_w5500_diag_status_contract)
@@ -156,6 +161,7 @@ else()
 
     add_test(NAME diag_protocol COMMAND test_diag_protocol)
     add_test(NAME diag_runner COMMAND test_diag_runner)
+    add_test(NAME diag_stage_phases COMMAND test_diag_stage_phases)
     add_test(NAME diag_journal COMMAND test_diag_journal)
     add_test(NAME diag_usb_identity COMMAND test_diag_usb_identity)
     add_test(NAME w5500_diag_status_contract COMMAND test_w5500_diag_status_contract)
