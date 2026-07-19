@@ -1417,6 +1417,8 @@ void wizchip_settimeout(wiz_NetTimeout* nettime);
 */
 void wizchip_gettimeout(wiz_NetTimeout* nettime);
 
+#endif
+
 /**
     @ingroup extra_functions
     @brief Get latched SPI error status (AUD-056).
@@ -1433,8 +1435,6 @@ uint8_t wizchip_get_spi_error(void);
     @sa wizchip_get_spi_error()
 */
 void wizchip_clear_spi_error(void);
-
-#endif
 
 #ifdef __cplusplus
 }

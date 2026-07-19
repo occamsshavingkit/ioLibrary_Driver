@@ -1018,11 +1018,7 @@ sndto_done:
 
 
 int32_t recvfrom_W5x00(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * addr, uint16_t *port) {
-    //int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * addr, uint16_t *port)
-    // printf("recvfrom_W5x00\r\n" ) ;
-    uint8_t addrlen = 4; //M20150601 : For W5300
-    uint8_t *dummy = &addrlen;
-    return recvfrom_IO_6(sn,   buf,  len,   addr,  port, dummy);
+    return recvfrom_IO_6(sn, buf, len, addr, port, (uint8_t*)0);
 }
 
 int32_t recvfrom_W6x00(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * addr, uint16_t *port, uint8_t *addrlen) {
@@ -1030,8 +1026,7 @@ int32_t recvfrom_W6x00(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * addr, 
     //int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * addr, uint16_t *port)
     return recvfrom_IO_6(sn,  buf,  len,   addr,  port, addrlen);
 }
-static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * addr, uint16_t *port, uint8_t *addrlen) { //TODO : WILL BE IMPROVED
-    //M20150601 : For W5300
+static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * addr, uint16_t *port, uint8_t *addrlen) {
     (void)addrlen;
 #if _WIZCHIP_ == 5300
     uint16_t mr;
