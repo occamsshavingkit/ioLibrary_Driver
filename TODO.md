@@ -22,7 +22,7 @@
 - **[x] AUD-058 (P2)**: listen() no lock but calls close() — now locked since AUD-S2 fix (commit 9ce04cd)
 - **[x] AUD-059 (P2)**: disconnect() modifies global bitfields without lock — now locked with goto cleanup (commit 460f0b1)
 - **[x] AUD-060 (P2)**: recv/recvfrom share state arrays without lock — now locked with goto cleanup (AUD-055)
-- **[ ] AUD-061–064 (P3)**: SPI efficiency — ~9-13 frames saved per sendto, ~4-8 per send/recv
+- **[x] AUD-061–064 (P3)**: SPI efficiency — getSn_MR dedup, burst FSR/RSR reads, Sn_MR cache (commits 62bf264, 16d744f)
 - **[x] AUD-S4 (P3)**: Stale addrlen pointer in recvfrom_W5x00 — replaced stack-local with (uint8_t*)0 (commit 5eb0ad3)
 
 ## Remaining Host-Doable Verification (no hardware required)
