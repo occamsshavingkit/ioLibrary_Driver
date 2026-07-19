@@ -1,7 +1,6 @@
 #include "diag_build_info.h"
 #include "diag_protocol.h"
 
-#include <assert.h>
 #include <string.h>
 
 int main(void)
@@ -14,8 +13,10 @@ int main(void)
     char line[DIAG_LINE_MAX + 1u];
     int written = diag_format_boot_event(line, sizeof(line));
 
-    assert(sizeof(expected) - 1u == 194u);
-    assert(written == (int)(sizeof(expected) - 1u));
-    assert(strcmp(line, expected) == 0);
+    if (sizeof(expected) - 1u != 194u ||
+        written != (int)(sizeof(expected) - 1u) ||
+        strcmp(line, expected) != 0) {
+        return 1;
+    }
     return 0;
 }

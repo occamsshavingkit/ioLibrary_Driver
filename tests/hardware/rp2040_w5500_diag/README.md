@@ -109,12 +109,15 @@ iolibrary_source=/tmp/ioLibrary-driver-diag
 ssh root@192.168.2.34 \
   "mkdir -p '$diag_source' '$iolibrary_source/Ethernet' '$iolibrary_source/Internet/DHCP'"
 rsync -a --delete \
+  --exclude='build/' --exclude='*.log' --exclude='__pycache__/' \
   "$repo_root/tests/hardware/rp2040_w5500_diag/" \
   "root@192.168.2.34:$diag_source/"
 rsync -a --delete \
+  --exclude='build/' --exclude='*.log' --exclude='__pycache__/' \
   "$repo_root/Ethernet/" \
   "root@192.168.2.34:$iolibrary_source/Ethernet/"
 rsync -a --delete \
+  --exclude='build/' --exclude='*.log' --exclude='__pycache__/' \
   "$repo_root/Internet/DHCP/" \
   "root@192.168.2.34:$iolibrary_source/Internet/DHCP/"
 ```
@@ -309,15 +312,18 @@ commit.
    `0`; every transcript must carry that candidate's provenance:
 
 ```bash
-python3 tests/hardware/rp2040_w5500_diag/host/diag_host.py \
-  --device /dev/ttyACM0 repeat pointer-api 100
-python3 tests/hardware/rp2040_w5500_diag/host/diag_host.py \
-  --device /dev/ttyACM0 \
-  --device-ip 192.168.2.247 --subnet 255.255.255.0 \
-  --gateway 192.168.2.1 --listen-ip 192.168.2.34 --listen-port 49000 \
-  repeat udp 20
-python3 tests/hardware/rp2040_w5500_diag/host/diag_host.py \
-  --device /dev/ttyACM0 repeat dhcp 3
+ssh root@192.168.2.34 \
+  "python3 /tmp/rp2040-w5500-diag-src/host/diag_host.py \
+    --device <device> repeat pointer-api 100"
+ssh root@192.168.2.34 \
+  "python3 /tmp/rp2040-w5500-diag-src/host/diag_host.py \
+    --device <device> \
+    --device-ip 192.168.2.247 --subnet 255.255.255.0 \
+    --gateway 192.168.2.1 --listen-ip 192.168.2.34 --listen-port 49000 \
+    repeat udp 20"
+ssh root@192.168.2.34 \
+  "python3 /tmp/rp2040-w5500-diag-src/host/diag_host.py \
+    --device <device> repeat dhcp 3"
 ```
 
 Physical flashing, USB enumeration, and corrected-candidate runs are mandatory
