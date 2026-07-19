@@ -80,6 +80,21 @@ static uint8_t _spi_status_check(void) {
     return 0;
 }
 
+/*
+ * Persistent SPI error latch (AUD-056).
+ * Set by _spi_status_check() after each transfer; cleared only
+ * by explicit wizchip_clear_spi_error() call.
+ */
+static uint8_t _wizchip_spi_error;
+
+uint8_t wizchip_get_spi_error(void) {
+    return _wizchip_spi_error;
+}
+
+void wizchip_clear_spi_error(void) {
+    _wizchip_spi_error = 0;
+}
+
 uint8_t  WIZCHIP_READ(uint32_t AddrSel) {
     uint8_t ret;
     uint8_t spi_data[3];
@@ -100,6 +115,8 @@ uint8_t  WIZCHIP_READ(uint32_t AddrSel) {
         WIZCHIP.IF.SPI._write_burst(spi_data, 3);
     }
     ret = WIZCHIP.IF.SPI._read_byte();
+
+    if (_spi_status_check()) _wizchip_spi_error = 1;
 
     WIZCHIP.CS._deselect();
     WIZCHIP_CRITICAL_EXIT();
@@ -127,6 +144,8 @@ void     WIZCHIP_WRITE(uint32_t AddrSel, uint8_t wb) {
         spi_data[3] = wb;
         WIZCHIP.IF.SPI._write_burst(spi_data, 4);
     }
+
+    if (_spi_status_check()) _wizchip_spi_error = 1;
 
     WIZCHIP.CS._deselect();
     WIZCHIP_CRITICAL_EXIT();
@@ -156,6 +175,8 @@ void     WIZCHIP_READ_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len) {
         WIZCHIP.IF.SPI._read_burst(pBuf, len);
     }
 
+    if (_spi_status_check()) _wizchip_spi_error = 1;
+
     WIZCHIP.CS._deselect();
     WIZCHIP_CRITICAL_EXIT();
 }
@@ -183,6 +204,8 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len) {
         WIZCHIP.IF.SPI._write_burst(spi_data, 3);
         WIZCHIP.IF.SPI._write_burst(pBuf, len);
     }
+
+    if (_spi_status_check()) _wizchip_spi_error = 1;
 
     WIZCHIP.CS._deselect();
     WIZCHIP_CRITICAL_EXIT();
