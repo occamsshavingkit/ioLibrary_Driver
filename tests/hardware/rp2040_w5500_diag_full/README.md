@@ -1,4 +1,8 @@
-# RP2040 W5500 Diagnostic Firmware
+# Archived RP2040 W5500 Diagnostic Firmware
+
+This is the preserved full diagnostic harness. Use
+[`../rp2040_w5500_probe/`](../rp2040_w5500_probe/) for the active lean pointer
+debug probe.
 
 This standalone Pico firmware isolates W5500 transport, register, pointer, UDP,
 and DHCP behavior from application firmware. It exposes a strict ASCII protocol
