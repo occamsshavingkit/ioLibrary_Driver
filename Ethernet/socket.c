@@ -854,7 +854,8 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
     CHECK_SOCKNUM();
     //CHECK_DGRAMMODE();
     /************/
-    switch (getSn_MR(sn) & 0x0F) {
+    tmp = getSn_MR(sn);
+    switch (tmp & 0x0F) {
     case Sn_MR_UDP:
     case Sn_MR_MACRAW:
     //         break;
@@ -866,7 +867,6 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
     default:
         ret = SOCKERR_SOCKMODE; goto sndto_done;
     }
-    tmp = getSn_MR(sn);
     if (tmp != Sn_MR_MACRAW) {
         if (addrlen == 16) {    // addrlen=16, Sn_MR_UDP6(1010), Sn_MR_UDPD(1110)), IPRAW6(1011)
 #ifdef IPV6_AVAILABLE
@@ -894,7 +894,7 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
         }
     }
 #ifndef IPV6_AVAILABLE
-    if ((getSn_MR(sn) & 0x0F) != Sn_MR_MACRAW) {
+    if ((tmp & 0x0F) != Sn_MR_MACRAW) {
     CHECK_SOCKDATA();
     //M20140501 : For avoiding fatal error on memory align mismatched
     //if(*((uint32_t*)addr) == 0) return SOCKERR_IPINVALID;

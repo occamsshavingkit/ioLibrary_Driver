@@ -215,13 +215,14 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len) {
 uint16_t getSn_TX_FSR(uint8_t sn) {
     uint16_t val = 0, val1 = 0;
     uint32_t _poll = 0;
+    uint8_t buf[2];
 
     do {
-        val1 = WIZCHIP_READ(Sn_TX_FSR(sn));
-        val1 = (val1 << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_TX_FSR(sn), 1));
+        WIZCHIP_READ_BUF(Sn_TX_FSR(sn), buf, 2);
+        val1 = ((uint16_t)buf[0] << 8) | buf[1];
         if (val1 != 0) {
-            val = WIZCHIP_READ(Sn_TX_FSR(sn));
-            val = (val << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_TX_FSR(sn), 1));
+            WIZCHIP_READ_BUF(Sn_TX_FSR(sn), buf, 2);
+            val = ((uint16_t)buf[0] << 8) | buf[1];
         }
     } while (val != val1 && ++_poll < _WIZCHIP_POLL_MAX_);
     return val;
@@ -231,13 +232,14 @@ uint16_t getSn_TX_FSR(uint8_t sn) {
 uint16_t getSn_RX_RSR(uint8_t sn) {
     uint16_t val = 0, val1 = 0;
     uint32_t _poll = 0;
+    uint8_t buf[2];
 
     do {
-        val1 = WIZCHIP_READ(Sn_RX_RSR(sn));
-        val1 = (val1 << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_RX_RSR(sn), 1));
+        WIZCHIP_READ_BUF(Sn_RX_RSR(sn), buf, 2);
+        val1 = ((uint16_t)buf[0] << 8) | buf[1];
         if (val1 != 0) {
-            val = WIZCHIP_READ(Sn_RX_RSR(sn));
-            val = (val << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_RX_RSR(sn), 1));
+            WIZCHIP_READ_BUF(Sn_RX_RSR(sn), buf, 2);
+            val = ((uint16_t)buf[0] << 8) | buf[1];
         }
     } while (val != val1 && ++_poll < _WIZCHIP_POLL_MAX_);
     return val;
