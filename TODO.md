@@ -17,13 +17,13 @@
 
 ### Remaining
 - **[x] AUD-055 (P1)**: Missing locks on 10 socket API entry points — shared state accessed without protection
-- **[ ] AUD-056 (P2)**: _spi_status_check() never called — AUD-009 SPI error detection inert
-- **[ ] AUD-057 (P1)**: TOCTOU on TX/RX buffer pointers across separate SPI bursts
+- **[x] AUD-056 (P2)**: _spi_status_check() never called — now wired into all 4 SPI transfer primitives + polling loops (commit 4e0bc73)
+- **[x] AUD-057 (P1)**: TOCTOU on buffer pointers — mitigated by AUD-055 lock infrastructure (same-socket serialization)
 - **[x] AUD-058 (P2)**: listen() no lock but calls close() — now locked since AUD-S2 fix (commit 9ce04cd)
 - **[x] AUD-059 (P2)**: disconnect() modifies global bitfields without lock — now locked with goto cleanup (commit 460f0b1)
 - **[x] AUD-060 (P2)**: recv/recvfrom share state arrays without lock — now locked with goto cleanup (AUD-055)
 - **[ ] AUD-061–064 (P3)**: SPI efficiency — ~9-13 frames saved per sendto, ~4-8 per send/recv
-- **[ ] AUD-S4 (P3)**: Stale addr pointer in recvfrom_W5x00 — passes stack-local to unused param
+- **[x] AUD-S4 (P3)**: Stale addrlen pointer in recvfrom_W5x00 — replaced stack-local with (uint8_t*)0 (commit 5eb0ad3)
 
 ## Remaining Host-Doable Verification (no hardware required)
 
