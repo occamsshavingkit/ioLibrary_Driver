@@ -14,41 +14,14 @@
 #include "socket.h"
 #pragma GCC diagnostic pop
 
-static int8_t __attribute__((unused))
-connect_IO_6(uint8_t sn, uint8_t *addr, uint16_t port, uint8_t addrlen)
-{
-    (void)sn;
-    (void)addr;
-    (void)port;
-    (void)addrlen;
-    return SOCKERR_SOCKMODE;
-}
-
-static int32_t __attribute__((unused))
-sendto_IO_6(uint8_t sn, uint8_t *buf, uint16_t len, uint8_t *addr,
-            uint16_t port, uint8_t addrlen)
-{
-    (void)sn;
-    (void)buf;
-    (void)len;
-    (void)addr;
-    (void)port;
-    (void)addrlen;
-    return SOCKERR_SOCKMODE;
-}
-
-static int32_t __attribute__((unused))
-recvfrom_IO_6(uint8_t sn, uint8_t *buf, uint16_t len, uint8_t *addr,
-              uint16_t *port, uint8_t *addrlen)
-{
-    (void)sn;
-    (void)buf;
-    (void)len;
-    (void)addr;
-    (void)port;
-    (void)addrlen;
-    return SOCKERR_SOCKMODE;
-}
+static int8_t connect_IO_6(uint8_t sn, uint8_t *addr, uint16_t port,
+                           uint8_t addrlen) __attribute__((unused));
+static int32_t sendto_IO_6(uint8_t sn, uint8_t *buf, uint16_t len,
+                           uint8_t *addr, uint16_t port,
+                           uint8_t addrlen) __attribute__((unused));
+static int32_t recvfrom_IO_6(uint8_t sn, uint8_t *buf, uint16_t len,
+                             uint8_t *addr, uint16_t *port,
+                             uint8_t *addrlen) __attribute__((unused));
 
 #include <stdarg.h>
 #include <stddef.h>
@@ -994,3 +967,6 @@ cleanup_no_stop:
 
     return final_result;
 }
+
+/* GCC 16 diagnoses socket.h's never-defined statics at TU finalization. */
+#pragma GCC diagnostic ignored "-Wunused-function"
