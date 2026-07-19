@@ -93,6 +93,14 @@ provenance check and synchronization, and any other ignored source file is
 rejected. Therefore every synchronized source byte is represented by `HEAD` or
 the embedded diff hash.
 
+The workflow must capture this guarded state before synchronization and repeat
+the same guards and state capture immediately after all synchronized scopes
+have transferred. Remote configuration is allowed only when HEAD, dirty state,
+and the scoped binary diff hash match the pre-transfer values. Together with
+successful rsync completion, this stability check binds the explicit provenance
+to the completed remote snapshot. Local edits after the check cannot affect that
+snapshot because no later synchronization occurs.
+
 The diagnostic USB device will have a unique product string and PID, distinct from the temperature server, so host automation cannot select the wrong UF2 or serial device.
 
 ## Board Transport

@@ -76,44 +76,60 @@ rsync. Keep the same shell open for the sync and configure commands.
 ```bash
 set -euo pipefail
 repo_root=$(git rev-parse --show-toplevel)
-set -- \
-  tests/hardware/rp2040_w5500_diag \
-  Ethernet \
+source_scopes=(
+  tests/hardware/rp2040_w5500_diag
+  Ethernet
   Internet/DHCP
-
-untracked=$(git -C "$repo_root" ls-files --others --exclude-standard -- "$@")
-if [ -n "$untracked" ]; then
-  printf 'Refusing unhashed untracked source files:\n%s\n' "$untracked" >&2
-  exit 1
-fi
-
-unexpected_ignored=$(
-  git -C "$repo_root" ls-files --others --ignored --exclude-standard -- \
-    "$@" \
-    ':(glob,exclude)**/build/**' \
-    ':(glob,exclude)**/*.log' \
-    ':(glob,exclude)**/__pycache__/**'
 )
-if [ -n "$unexpected_ignored" ]; then
-  printf 'Refusing ignored source files not excluded from rsync:\n%s\n' \
-    "$unexpected_ignored" >&2
-  exit 1
-fi
 
-git_sha=$(git -C "$repo_root" rev-parse HEAD)
-if git -C "$repo_root" diff --quiet HEAD -- "$@"; then
-  dirty=0
-else
-  diff_status=$?
-  if [ "$diff_status" -ne 1 ]; then
-    exit "$diff_status"
+check_source_guards() {
+  local untracked unexpected_ignored
+
+  untracked=$(git -C "$repo_root" ls-files --others --exclude-standard -- \
+    "${source_scopes[@]}")
+  if [ -n "$untracked" ]; then
+    printf 'Refusing unhashed untracked source files:\n%s\n' "$untracked" >&2
+    exit 1
   fi
-  dirty=1
-fi
-diff_sha=$(
-  git -C "$repo_root" diff --no-ext-diff --binary HEAD -- "$@" |
-    sha256sum | cut -d' ' -f1
-)
+
+  unexpected_ignored=$(
+    git -C "$repo_root" ls-files --others --ignored --exclude-standard -- \
+      "${source_scopes[@]}" \
+      ':(glob,exclude)**/build/**' \
+      ':(glob,exclude)**/*.log' \
+      ':(glob,exclude)**/__pycache__/**'
+  )
+  if [ -n "$unexpected_ignored" ]; then
+    printf 'Refusing ignored source files not excluded from rsync:\n%s\n' \
+      "$unexpected_ignored" >&2
+    exit 1
+  fi
+}
+
+capture_source_state() {
+  local diff_status
+
+  check_source_guards
+  source_git_sha=$(git -C "$repo_root" rev-parse HEAD)
+  if git -C "$repo_root" diff --quiet HEAD -- "${source_scopes[@]}"; then
+    source_dirty=0
+  else
+    diff_status=$?
+    if [ "$diff_status" -ne 1 ]; then
+      exit "$diff_status"
+    fi
+    source_dirty=1
+  fi
+  source_diff_sha=$(
+    git -C "$repo_root" diff --no-ext-diff --binary HEAD -- \
+      "${source_scopes[@]}" | sha256sum | cut -d' ' -f1
+  )
+}
+
+capture_source_state
+git_sha=$source_git_sha
+dirty=$source_dirty
+diff_sha=$source_diff_sha
 build_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 printf 'git=%s\ndirty=%s\ndiff=%s\nbuild=%s\n' \
   "$git_sha" "$dirty" "$diff_sha" "$build_utc"
@@ -171,7 +187,29 @@ rsync -a --delete \
   --exclude='build/' --exclude='*.log' --exclude='__pycache__/' \
   "$repo_root/Internet/DHCP/" \
   "root@192.168.2.34:$iolibrary_source/Internet/DHCP/"
+
+capture_source_state
+if [ "$source_git_sha" != "$git_sha" ]; then
+  printf 'Refusing changed HEAD during source synchronization.\n' >&2
+  exit 1
+fi
+if [ "$source_dirty" != "$dirty" ]; then
+  printf 'Refusing changed dirty state during source synchronization.\n' >&2
+  exit 1
+fi
+if [ "$source_diff_sha" != "$diff_sha" ]; then
+  printf 'Refusing changed source diff during synchronization.\n' >&2
+  exit 1
+fi
 ```
+
+The second `capture_source_state` is mandatory and runs immediately after all
+three successful rsync operations. Remote CMake configuration proceeds only if
+the guarded local source state has the same HEAD, dirty flag, and binary diff
+hash captured before transfer. The explicit provenance values therefore
+describe the completed remote snapshot: rsync succeeded and no synchronized
+source state changed across the transfer. Later local edits are irrelevant to
+that snapshot because this workflow performs no later synchronization.
 
 ## Configure And Build On The Pi
 

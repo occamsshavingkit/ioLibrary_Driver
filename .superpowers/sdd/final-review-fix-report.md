@@ -369,3 +369,88 @@ and the absence of a new HIL run in this host/docs/tests-only wave.
 
 No unresolved concern remains in this fix wave. Corrected-driver acceptance
 remains separate follow-up work exactly as recorded before this wave.
+
+## Post-Rsync State-Stability Follow-Up
+
+Starting HEAD: `b740ce066c1f49102b37f9cf70e8d67f1d71f8ad`
+
+This follow-up changes only the README, implementation-record plan, design, and
+this appended report. It does not change firmware, host, test, CMake, Ethernet,
+or DHCP source. Existing report history above remains unchanged.
+
+### Follow-Up Review Dispositions
+
+| Finding | Disposition | Rationale |
+| --- | --- | --- |
+| Source mutation during rsync could make explicit provenance describe a different local state | Fixed in docs | README, plan, and design now require the same source guards and state capture before and immediately after all three rsync operations. Remote CMake starts only when HEAD, dirty state, and the complete scoped binary-diff hash still equal their pre-transfer values. A transfer or check failure stops the workflow. |
+| `DIAG_BUILD_UTC` validation does not reject calendar-impossible timestamps | Rejected | The authoritative workflow does not accept a human-authored timestamp: it assigns `build_utc` with `date -u +%Y-%m-%dT%H:%M:%SZ`. CMake enforces the documented 20-character UTC representation. Calendar validation of a manually forged cache value is outside the provenance workflow and the value drives no firmware control flow. |
+| UDP send polling should receive a fresh deadline | Rejected, duplicate of CR-18 | `sendto` retries and SENDOK polling intentionally share one five-second `send_deadline`, bounding the complete send/ARP operation. Resetting it between phases would allow roughly ten seconds and weaken the stated bound. |
+| The host controller needs a general idle deadline | Rejected, duplicate of CR-26 | Active firmware stages are bounded by their software deadlines and watchdog journal; reconnect has its own ten-second host deadline. The protocol defines no normal-operation host timeout result, so an invented idle timeout could contradict the authoritative firmware result. |
+| Successful SPI-status callbacks should be restored after contract classification | Rejected, duplicate of CR-17 | Successful registration is meant to leave independent, zero-return status callbacks installed. Only alias failure mutates transport callback storage, and that path restores the saved transport callbacks before reporting failure. |
+| `%23s` should be derived automatically from `DIAG_STAGE_NAME_MAX` | Rejected, non-blocking | `DIAG_STAGE_NAME_MAX` is 24 bytes including the terminator and `%23s` is the corresponding bounded conversion. Longer input is split into extra tokens and rejected rather than accepted as a truncated command. No mismatch or behavioral defect exists in the current fixed protocol. |
+| Phase IDs should be globally unique or strongly typed | Rejected, non-blocking | Journal phases are interpreted together with their stage ID. Phase `1` intentionally means `driver-call` for early driver stages and `save` for register stages; `diag_stage_phase_name(stage, phase)` performs that stage-qualified mapping, with direct tests for valid and invalid combinations. |
+| `diag_stage_set_details` needs a GNU printf-format attribute | Rejected, non-blocking | A compiler-specific annotation could add diagnostics for future edits but is not runtime correctness. Current format strings are internal literals whose argument types match on inspection. The optional diagnostic annotation is unrelated to this documentation-only provenance fix. |
+| Passing `sizeof(packet)` to `sendto` risks an unsafe size conversion | Rejected | `packet` is `diag_udp_packet_t`; `_Static_assert(sizeof(diag_udp_packet_t) == 32u)` fixes its size at compile time. Thirty-two fits the ioLibrary `uint16_t` length parameter, and the send result and pointer-delta checks independently enforce the same protocol size. |
+
+### State-Stability Validation
+
+A temporary isolated Git harness copied the documented `source_scopes`,
+`check_source_guards`, `capture_source_state`, and three post-transfer
+comparisons. Each mutation was injected between the two captures. A mutation
+scenario counted as passing only when the documented guard exited nonzero; the
+unchanged scenario counted as passing only when all three values matched.
+
+Command:
+
+```bash
+bash -n /tmp/opencode/w5500-state-stability/validate.sh && \
+  bash /tmp/opencode/w5500-state-stability/validate.sh
+```
+
+Exact output from the successful run (stdout and stderr as captured):
+
+```text
+PASS unchanged source state
+Refusing changed source diff during synchronization.
+PASS unstaged tracked mutation aborted on hash change
+Refusing changed dirty state during source synchronization.
+PASS staged tracked mutation aborted on dirty-state change
+Refusing changed HEAD during source synchronization.
+PASS HEAD change aborted
+PASS new untracked source aborted
+PASS unexpected ignored source aborted
+Refusing unhashed untracked source files:
+scope/new.txt
+Refusing ignored source files not excluded from rsync:
+scope/new.ignored
+```
+
+The command exited zero. The temporary harness was deleted after the run. The
+five required case categories therefore establish that unchanged state proceeds, tracked
+unstaged and staged mutations abort, a HEAD change aborts, and new untracked or
+unexpected ignored source aborts.
+
+### Follow-Up Documentation Validation
+
+Commands:
+
+```bash
+markdownlint tests/hardware/rp2040_w5500_diag/README.md
+markdownlint --disable MD013 MD032 -- \
+  docs/superpowers/specs/2026-07-19-rp2040-w5500-diagnostic-firmware-design.md \
+  docs/superpowers/plans/2026-07-19-rp2040-w5500-diagnostic-firmware.md \
+  .superpowers/sdd/final-review-fix-report.md
+git diff --check
+test -z "$(git diff --name-only -- \
+  tests/hardware/rp2040_w5500_diag/src \
+  tests/hardware/rp2040_w5500_diag/host \
+  tests/hardware/rp2040_w5500_diag/tests \
+  tests/hardware/rp2040_w5500_diag/CMakeLists.txt \
+  Ethernet Internet/DHCP)"
+```
+
+All four commands produced no output and exited zero. MD013 and MD032 remain
+disabled only for the historical plan, design, and report, which inherited
+those violations. The authoritative README passes the complete default
+markdownlint ruleset, the diff has no whitespace errors, and no firmware, host,
+test, CMake, Ethernet, or DHCP source differs from the follow-up starting HEAD.
