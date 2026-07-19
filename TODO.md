@@ -16,12 +16,12 @@
 - **[x] AUD-054 (P2)**: IINCHIP_WRITE_BUF mapped to wrong macro (3-arg vs 2-arg)
 
 ### Remaining
-- **[ ] AUD-055 (P1)**: Missing locks on 10 socket API entry points — shared state accessed without protection
+- **[x] AUD-055 (P1)**: Missing locks on 10 socket API entry points — shared state accessed without protection
 - **[ ] AUD-056 (P2)**: _spi_status_check() never called — AUD-009 SPI error detection inert
 - **[ ] AUD-057 (P1)**: TOCTOU on TX/RX buffer pointers across separate SPI bursts
-- **[ ] AUD-058 (P2)**: listen() no lock but calls close() — inconsistent lock hierarchy
-- **[ ] AUD-059 (P2)**: disconnect() modifies global bitfields without lock
-- **[ ] AUD-060 (P2)**: recv/recvfrom share state arrays without lock
+- **[x] AUD-058 (P2)**: listen() no lock but calls close() — now locked since AUD-S2 fix (commit 9ce04cd)
+- **[x] AUD-059 (P2)**: disconnect() modifies global bitfields without lock — now locked with goto cleanup (commit 460f0b1)
+- **[x] AUD-060 (P2)**: recv/recvfrom share state arrays without lock — now locked with goto cleanup (AUD-055)
 - **[ ] AUD-061–064 (P3)**: SPI efficiency — ~9-13 frames saved per sendto, ~4-8 per send/recv
 - **[ ] AUD-S4 (P3)**: Stale addr pointer in recvfrom_W5x00 — passes stack-local to unused param
 
