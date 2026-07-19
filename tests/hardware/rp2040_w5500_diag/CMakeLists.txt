@@ -11,9 +11,17 @@ if(NOT DIAG_BUILD_FIRMWARE)
         src/diag_protocol.c
         tests/test_diag_protocol.c
     )
+    add_executable(test_diag_runner
+        src/diag_runner.c
+        tests/test_diag_runner.c
+    )
     target_include_directories(test_diag_protocol PRIVATE src)
+    target_include_directories(test_diag_runner PRIVATE src)
     target_compile_features(test_diag_protocol PRIVATE c_std_11)
+    target_compile_features(test_diag_runner PRIVATE c_std_11)
     target_compile_options(test_diag_protocol PRIVATE -Wall -Wextra -Werror -pedantic)
+    target_compile_options(test_diag_runner PRIVATE -Wall -Wextra -Werror -pedantic)
 
     add_test(NAME diag_protocol COMMAND test_diag_protocol)
+    add_test(NAME diag_runner COMMAND test_diag_runner)
 endif()
