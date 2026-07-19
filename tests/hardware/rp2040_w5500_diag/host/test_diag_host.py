@@ -2,6 +2,7 @@ import os
 import pty
 import queue
 import select
+import selectors
 import signal
 import socket
 import termios
@@ -621,7 +622,180 @@ class ControllerHelperTests(unittest.TestCase):
         udp_socket.close.assert_called_once_with()
 
 
+class ControllerRegistrationTests(unittest.TestCase):
+    def test_reconnect_registration_failure_closes_descriptor_and_retries(self):
+        operations = []
+
+        class RegistrationFailingSelector:
+            def __init__(self):
+                self.registered = {}
+                self.initial_masks = iter(
+                    (
+                        selectors.EVENT_WRITE,
+                        selectors.EVENT_READ,
+                        selectors.EVENT_WRITE,
+                        selectors.EVENT_READ,
+                        selectors.EVENT_READ,
+                    )
+                )
+
+            def register(self, fileobj, events, data):
+                operations.append(("register", fileobj))
+                if fileobj == 20:
+                    raise OSError("registration failed")
+                self.registered[fileobj] = (events, data)
+
+            def modify(self, fileobj, events, data):
+                self.registered[fileobj] = (events, data)
+
+            def unregister(self, fileobj):
+                if fileobj not in self.registered:
+                    raise KeyError(fileobj)
+                del self.registered[fileobj]
+
+            def select(self, _timeout):
+                if 10 in self.registered:
+                    mask = next(self.initial_masks)
+                    return [(mock.Mock(fd=10, data="cdc"), mask)]
+                if 30 in self.registered:
+                    return [
+                        (
+                            mock.Mock(fd=30, data="cdc"),
+                            selectors.EVENT_READ,
+                        )
+                    ]
+                return []
+
+            def close(self):
+                pass
+
+        selector = RegistrationFailingSelector()
+        descriptors = iter((10, 20, 30))
+
+        def open_cdc_side_effect(_path):
+            descriptor = next(descriptors)
+            operations.append(("open", descriptor))
+            return descriptor
+
+        reads = {
+            10: iter(
+                (
+                    b"DIAG protocol=1 seq=1 stage=shell event=STATUS\n",
+                    b"DIAG protocol=1 seq=2 stage=pointer-api event=START\n",
+                    OSError("device disconnected"),
+                )
+            ),
+            30: iter(
+                (
+                    b"DIAG protocol=1 seq=0 stage=system event=BOOT "
+                    b"recovery=true\n"
+                    b"DIAG protocol=1 seq=2 stage=pointer-api event=TIMEOUT "
+                    b"reset=watchdog phase=write-tx\n",
+                )
+            ),
+        }
+
+        def read_side_effect(descriptor, _size):
+            result = next(reads[descriptor])
+            if isinstance(result, BaseException):
+                raise result
+            return result
+
+        def close_side_effect(descriptor):
+            operations.append(("close", descriptor))
+
+        monotonic_time = [-0.11]
+
+        def monotonic_side_effect():
+            monotonic_time[0] += 0.11
+            return monotonic_time[0]
+
+        arguments = parse_args(
+            ["--device", "/dev/ttyACM0", "run", "pointer-api"]
+        )
+        with (
+            mock.patch(
+                "diag_host.selectors.DefaultSelector", return_value=selector
+            ),
+            mock.patch("diag_host.open_cdc", side_effect=open_cdc_side_effect),
+            mock.patch(
+                "diag_host.find_diagnostic_device",
+                return_value="/dev/ttyACM0",
+            ),
+            mock.patch("diag_host.os.read", side_effect=read_side_effect),
+            mock.patch("diag_host.os.write", side_effect=lambda _fd, data: len(data)),
+            mock.patch("diag_host.os.close", side_effect=close_side_effect),
+            mock.patch(
+                "diag_host.time.monotonic", side_effect=monotonic_side_effect
+            ),
+        ):
+            exit_code = run_controller(arguments, transcript=StringIO())
+
+        self.assertEqual(exit_code, 3)
+        self.assertIn(("open", 30), operations)
+        self.assertIn(("close", 20), operations)
+        self.assertLess(
+            operations.index(("close", 20)), operations.index(("open", 30))
+        )
+
+
 class ControllerIntegrationTests(unittest.TestCase):
+    def test_autonomous_barrier_fail_is_transcripted_without_poisoning_command(self):
+        master, slave = pty.openpty()
+        transcript = StringIO()
+        arguments = parse_args(
+            ["--device", os.ttyname(slave), "run", "pointer-api"]
+        )
+
+        def simulate_firmware():
+            reader = CommandReader(master)
+            self.assertEqual(reader.read(), "status")
+            self._send_event(
+                master,
+                "DIAG protocol=1 seq=1 stage=callback-layout event=START",
+            )
+            self._send_event(
+                master,
+                "DIAG protocol=1 seq=1 stage=callback-layout event=FAIL "
+                "code=no-status-api",
+            )
+            self._send_event(
+                master, "DIAG protocol=1 seq=2 stage=shell event=STATUS"
+            )
+            self.assertEqual(reader.read(), "run pointer-api")
+            self._send_event(
+                master,
+                "DIAG protocol=1 seq=3 stage=pointer-api event=START",
+            )
+            self._send_event(
+                master,
+                "DIAG protocol=1 seq=3 stage=pointer-api event=PASS",
+            )
+            self.assertEqual(reader.read(), "status")
+            self._send_event(
+                master, "DIAG protocol=1 seq=4 stage=shell event=STATUS"
+            )
+
+        try:
+            exit_code = self._run_with_simulator(
+                arguments, transcript, simulate_firmware
+            )
+        finally:
+            os.close(master)
+            os.close(slave)
+
+        self.assertEqual(exit_code, 0)
+        fail_records = [
+            line
+            for line in transcript.getvalue().splitlines()
+            if "stage=callback-layout event=FAIL code=no-status-api" in line
+        ]
+        self.assertEqual(len(fail_records), 1)
+        self.assertRegex(
+            fail_records[0],
+            r"^\[\d{4}-\d{2}-\d{2}T.*Z\] CDC< DIAG protocol=1 ",
+        )
+
     def test_rejects_recovered_timeout_without_observed_interruption(self):
         master, slave = pty.openpty()
         transcript = StringIO()

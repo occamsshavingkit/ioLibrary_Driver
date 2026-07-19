@@ -417,8 +417,16 @@ def run_controller(
 
     def register_cdc(path: str) -> None:
         nonlocal cdc_descriptor
-        cdc_descriptor = open_cdc(path)
-        selector.register(cdc_descriptor, selectors.EVENT_READ, "cdc")
+        descriptor = open_cdc(path)
+        try:
+            selector.register(descriptor, selectors.EVENT_READ, "cdc")
+        except BaseException:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+            raise
+        cdc_descriptor = descriptor
 
     try:
         register_cdc(arguments.device)
