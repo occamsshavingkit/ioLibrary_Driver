@@ -80,6 +80,8 @@ static uint16_t sock_next_rd[_WIZCHIP_SOCK_NUM_] = {0,};
 uint8_t sock_remained_byte[_WIZCHIP_SOCK_NUM_] = {0,}; // set by wiz_recv_data()
 #endif
 
+static uint8_t sock_mode[_WIZCHIP_SOCK_NUM_] = {0,}; // Sn_MR cache (AUD-064)
+
 
 #define CHECK_SOCKNUM()   \
    do{                    \
@@ -88,12 +90,12 @@ uint8_t sock_remained_byte[_WIZCHIP_SOCK_NUM_] = {0,}; // set by wiz_recv_data()
 
 #define CHECK_SOCKMODE(mode)  \
    do{                     \
-      if((getSn_MR(sn) & 0x0F) != mode) return SOCKERR_SOCKMODE;  \
+      if((sock_mode[sn] & 0x0F) != mode) return SOCKERR_SOCKMODE;  \
    }while(0);              \
 
 #define CHECK_TCPMODE()                                           \
    do{                                                            \
-      if((getSn_MR(sn) & 0x03) != 0x01) return SOCKERR_SOCKMODE;  \
+      if((sock_mode[sn] & 0x03) != 0x01) return SOCKERR_SOCKMODE;  \
    }while(0);
 
 #define CHECK_SOCKINIT()   \
@@ -109,23 +111,23 @@ uint8_t sock_remained_byte[_WIZCHIP_SOCK_NUM_] = {0,}; // set by wiz_recv_data()
 #if _WIZCHIP_ == W6100 || _WIZCHIP_ == W6300
 #define CHECK_TCPMODE()                                           \
    do{                                                            \
-      if((getSn_MR(sn) & 0x03) != 0x01) return SOCKERR_SOCKMODE;  \
+      if((sock_mode[sn] & 0x03) != 0x01) return SOCKERR_SOCKMODE;  \
    }while(0);
 
 #define CHECK_UDPMODE()                                           \
    do{                                                            \
-      if((getSn_MR(sn) & 0x03) != 0x02) return SOCKERR_SOCKMODE;  \
+      if((sock_mode[sn] & 0x03) != 0x02) return SOCKERR_SOCKMODE;  \
    }while(0);
 
 #define CHECK_IPMODE()                                            \
    do{                                                            \
-      if((getSn_MR(sn) & 0x07) != 0x03) return SOCKERR_SOCKMODE;  \
+      if((sock_mode[sn] & 0x07) != 0x03) return SOCKERR_SOCKMODE;  \
    }while(0);
 
 #define CHECK_DGRAMMODE()                                         \
    do{                                                            \
-      if(getSn_MR(sn) == Sn_MR_CLOSED) return SOCKERR_SOCKMODE;   \
-      if((getSn_MR(sn) & 0x03) == 0x01) return SOCKERR_SOCKMODE;  \
+      if(sock_mode[sn] == Sn_MR_CLOSED) return SOCKERR_SOCKMODE;   \
+      if((sock_mode[sn] & 0x03) == 0x01) return SOCKERR_SOCKMODE;  \
    }while(0);
 
 #define CHECK_IPZERO(addr, addrlen)                                  \
@@ -353,6 +355,7 @@ int8_t socket(uint8_t sn, uint8_t protocol, uint16_t port, uint8_t flag) {
 #else
     setSn_MR(sn, (protocol | (flag & 0xF0)));
 #endif
+    sock_mode[sn] = (uint8_t)(protocol | (flag & 0xF0));
 #ifdef IPV6_AVAILABLE
     setSn_MR2(sn, flag & 0x03);
 #endif
@@ -393,7 +396,7 @@ int8_t close(uint8_t sn) {
 #if   (_WIZCHIP_ == 5300)
     //M20160503 : Wrong socket parameter. s -> sn
     //if( ((getSn_MR(s)& 0x0F) == Sn_MR_TCP) && (getSn_TX_FSR(s) != getSn_TxMAX(s)) )
-    if (((getSn_MR(sn) & 0x0F) == Sn_MR_TCP) && (getSn_TX_FSR(sn) != getSn_TxMAX(sn))) {
+    if (((sock_mode[sn] & 0x0F) == Sn_MR_TCP) && (getSn_TX_FSR(sn) != getSn_TxMAX(sn))) {
         uint8_t destip[4] = {0, 0, 0, 1};
         // TODO
         // You can wait for completing to sending data;
@@ -489,14 +492,14 @@ static int8_t connect_IO_6(uint8_t sn, uint8_t * addr, uint16_t port, uint8_t ad
 
     if (addrlen == 16) {   // addrlen=16, Sn_MR_TCP6(1001), Sn_MR_TCPD(1101))
 #ifdef IPV6_AVAILABLE
-        if (getSn_MR(sn) & 0x08) {
+        if (sock_mode[sn] & 0x08) {
             setSn_DIP6R(sn, addr);
             setSn_CR(sn, Sn_CR_CONNECT6);
         } else
 #endif
             ret = SOCKERR_SOCKMODE; goto conn_done;
     } else {       // addrlen=4, Sn_MR_TCP4(0001), Sn_MR_TCPD(1101)
-        if (getSn_MR(sn) == Sn_MR_TCP6) {
+        if (sock_mode[sn] == Sn_MR_TCP6) {
             ret = SOCKERR_SOCKMODE; goto conn_done;
         }
         setSn_DIPR(sn, addr);
@@ -854,7 +857,7 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
     CHECK_SOCKNUM();
     //CHECK_DGRAMMODE();
     /************/
-    tmp = getSn_MR(sn);
+    tmp = sock_mode[sn];
     switch (tmp & 0x0F) {
     case Sn_MR_UDP:
     case Sn_MR_MACRAW:
