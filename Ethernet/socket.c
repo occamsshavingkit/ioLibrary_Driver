@@ -507,14 +507,20 @@ static int8_t connect_IO_6(uint8_t sn, uint8_t * addr, uint16_t port, uint8_t ad
     if (sock_io_mode & (1 << sn)) {
         return SOCK_BUSY;
     }
-    while (getSn_SR(sn) != SOCK_ESTABLISHED) {
-        if (getSn_IR(sn) & Sn_IR_TIMEOUT) {
-            setSn_IR(sn, Sn_IR_TIMEOUT);
-            return SOCKERR_TIMEOUT;
-        }
+    {
+        uint32_t _poll = 0;
+        while (getSn_SR(sn) != SOCK_ESTABLISHED) {
+            if (getSn_IR(sn) & Sn_IR_TIMEOUT) {
+                setSn_IR(sn, Sn_IR_TIMEOUT);
+                return SOCKERR_TIMEOUT;
+            }
 
-        if (getSn_SR(sn) == SOCK_CLOSED) {
-            return SOCKERR_SOCKCLOSED;
+            if (getSn_SR(sn) == SOCK_CLOSED) {
+                return SOCKERR_SOCKCLOSED;
+            }
+            if (++_poll > _WIZCHIP_POLL_MAX_) {
+                return SOCKERR_DEADLINE;
+            }
         }
     }
 
@@ -536,10 +542,16 @@ int8_t disconnect(uint8_t sn) {
         if (sock_io_mode & (1 << sn)) {
             return SOCK_BUSY;
         }
-        while (getSn_SR(sn) != SOCK_CLOSED) {
-            if (getSn_IR(sn) & Sn_IR_TIMEOUT) {
-                close(sn);
-                return SOCKERR_TIMEOUT;
+        {
+            uint32_t _poll = 0;
+            while (getSn_SR(sn) != SOCK_CLOSED) {
+                if (getSn_IR(sn) & Sn_IR_TIMEOUT) {
+                    close(sn);
+                    return SOCKERR_TIMEOUT;
+                }
+                if (++_poll > _WIZCHIP_POLL_MAX_) {
+                    return SOCKERR_DEADLINE;
+                }
             }
         }
     }
