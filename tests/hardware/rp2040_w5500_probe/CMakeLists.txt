@@ -26,7 +26,7 @@ target_include_directories(w5500_probe_iolibrary SYSTEM PUBLIC
     "${IOLIBRARY_ROOT}/Ethernet"
     "${IOLIBRARY_ROOT}/Internet/DHCP"
 )
-target_compile_definitions(w5500_probe_iolibrary PUBLIC _WIZCHIP_=W5500)
+target_compile_definitions(w5500_probe_iolibrary PUBLIC _WIZCHIP_=W5500 _DHCP_DEBUG_)
 
 add_library(w5500_probe_transport STATIC
     "${WIZNET_PICO_C_PATH}/port/ioLibrary_Driver/src/wizchip_qspi_pio.c"
@@ -64,6 +64,7 @@ target_compile_definitions(rp2040_w5500_probe PRIVATE
     _WIZCHIP_=W5500
     DEVICE_BOARD_NAME=W55RP20_EVB_PICO
     _WIZCHIP_SPI_SCLK_SPEED=43
+    _DHCP_DEBUG_
 )
 target_compile_features(rp2040_w5500_probe PRIVATE c_std_11)
 set_source_files_properties(src/main.c PROPERTIES

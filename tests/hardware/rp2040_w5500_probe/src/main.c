@@ -2,6 +2,7 @@
 
 #include "dhcp.h"
 #include "hardware/gpio.h"
+#include "pico/bootrom.h"
 #include "pico/critical_section.h"
 #include "pico/stdio_usb.h"
 #include "pico/stdlib.h"
@@ -191,7 +192,7 @@ int main(void)
     printf("PROBE boot\n");
     if (!init_transport()) {
         printf("PROBE transport=FAIL\n");
-        return 1;
+        goto probe_done;
     }
     printf("PROBE transport=PASS\n");
 
@@ -202,7 +203,7 @@ int main(void)
     printf("PROBE memory_init=%d phy_link=%d\n", memory_init, phy_link);
     if (!lease_dhcp(&network)) {
         printf("PROBE dhcp=FAIL\n");
-        return 1;
+        goto probe_done;
     }
     printf("PROBE dhcp ip=%u.%u.%u.%u\n", network.ip[0], network.ip[1],
            network.ip[2], network.ip[3]);
@@ -210,7 +211,7 @@ int main(void)
     if (socket(PROBE_SOCKET, Sn_MR_UDP, PROBE_PORT, SF_IO_NONBLOCK) !=
         PROBE_SOCKET) {
         printf("PROBE udp_open=FAIL\n");
-        return 1;
+        goto probe_done;
     }
     printf("PROBE recv_ready port=%u\n", PROBE_PORT);
     rx_before = getSn_RX_RD(PROBE_SOCKET);
@@ -229,18 +230,51 @@ int main(void)
         printf("PROBE recv=FAIL result=%ld payload=%02x\n", (long)received,
                payload);
         close(PROBE_SOCKET);
-        return 1;
+        goto probe_done;
     }
     if ((uint16_t)(rx_after - rx_before) !=
         UDP_RECEIVE_HEADER_SIZE + 1u) {
         printf("PROBE rx_rd=FAIL before=%04x after=%04x expected_delta=0009\n",
                rx_before, rx_after);
         close(PROBE_SOCKET);
-        return 1;
+        goto probe_done;
     }
     printf("PROBE rx_rd before=%04x after=%04x expected_delta=0009\n",
            rx_before, rx_after);
     close(PROBE_SOCKET);
     printf("PROBE final_state=00\n");
-    return 0;
+
+probe_done:
+    printf("PROBE ready: enter BOOTSEL to reboot into ROM bootloader\n");
+    for (;;) {
+        int c = getchar_timeout_us(10000u);
+        if (c == PICO_ERROR_TIMEOUT) {
+            continue;
+        }
+        if (c == 'B') {
+            c = getchar_timeout_us(200000u);
+            if (c == 'O') {
+                c = getchar_timeout_us(200000u);
+                if (c == 'O') {
+                    c = getchar_timeout_us(200000u);
+                    if (c == 'T') {
+                        c = getchar_timeout_us(200000u);
+                        if (c == 'S') {
+                            c = getchar_timeout_us(200000u);
+                            if (c == 'E') {
+                                c = getchar_timeout_us(200000u);
+                                if (c == 'L') {
+                                    c = getchar_timeout_us(200000u);
+                                    if (c == '\n' || c == '\r') {
+                                        reset_usb_boot(0u, 0u);
+                                        for (;;) {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
