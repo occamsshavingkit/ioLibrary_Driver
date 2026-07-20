@@ -1,7 +1,11 @@
+#include <stdint.h>
+
+#include "dhcp.h"
 #include "hardware/gpio.h"
 #include "pico/critical_section.h"
 #include "pico/stdio_usb.h"
 #include "pico/stdlib.h"
+#include "pico/unique_id.h"
 
 #include "socket.h"
 #include "wizchip_conf.h"
@@ -9,14 +13,17 @@
 #include "wizchip_qspi_pio.h"
 
 #include <stdbool.h>
-#include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #define PROBE_SOCKET 0u
 #define PROBE_PORT 49002u
+#define DHCP_BUFFER_SIZE 548u
+#define DHCP_LEASE_TIMEOUT_MS 60000u
 
 static critical_section_t spi_lock;
 static wiznet_spi_handle_t spi_handle;
+static uint8_t dhcp_buffer[DHCP_BUFFER_SIZE];
 
 static const wiznet_spi_config_t spi_config = {
     .data_in_pin = 22,
@@ -69,6 +76,68 @@ static void write_burst(uint8_t *buffer, uint16_t length)
     (*spi_handle)->write_buffer(buffer, length);
 }
 
+static bool dhcp_tick(struct repeating_timer *timer)
+{
+    (void)timer;
+    DHCP_time_handler();
+    return true;
+}
+
+static void derive_mac(const uint8_t board_id[8], uint8_t mac[6])
+{
+    mac[0] = 0x02u;
+    mac[1] = board_id[2];
+    mac[2] = board_id[3];
+    mac[3] = board_id[4];
+    mac[4] = board_id[5];
+    mac[5] = board_id[6];
+}
+
+static bool lease_dhcp(wiz_NetInfo *network)
+{
+    pico_unique_board_id_t board_id;
+    struct repeating_timer timer;
+    absolute_time_t deadline;
+
+    pico_get_unique_board_id(&board_id);
+    memset(network, 0, sizeof(*network));
+    derive_mac(board_id.id, network->mac);
+    network->dhcp = NETINFO_DHCP;
+    if (ctlnetwork(CN_SET_NETINFO, network) != 0) {
+        return false;
+    }
+
+    reg_dhcp_cbfunc(NULL, NULL, NULL);
+    if (!add_repeating_timer_ms(-1000, dhcp_tick, NULL, &timer)) {
+        return false;
+    }
+    DHCP_init(PROBE_SOCKET, dhcp_buffer);
+    deadline = make_timeout_time_ms(DHCP_LEASE_TIMEOUT_MS);
+    while (!time_reached(deadline)) {
+        uint8_t state = DHCP_run();
+        if (state == DHCP_FAILED) {
+            break;
+        }
+        if (state == DHCP_IP_ASSIGN || state == DHCP_IP_CHANGED ||
+            state == DHCP_IP_LEASED) {
+            getIPfromDHCP(network->ip);
+            getGWfromDHCP(network->gw);
+            getSNfromDHCP(network->sn);
+            getDNSfromDHCP(network->dns);
+            if (network->ip[0] != 0u && network->gw[0] != 0u &&
+                network->sn[0] != 0u) {
+                cancel_repeating_timer(&timer);
+                DHCP_stop();
+                return ctlnetwork(CN_SET_NETINFO, network) == 0;
+            }
+        }
+        sleep_ms(10u);
+    }
+    cancel_repeating_timer(&timer);
+    DHCP_stop();
+    return false;
+}
+
 static bool init_transport(void)
 {
     spi_handle = wiznet_spi_pio_open(&spi_config);
@@ -101,6 +170,7 @@ int main(void)
 {
     uint8_t memory[8] = {2u, 2u, 2u, 2u, 2u, 2u, 2u, 2u};
     uint8_t payload = 0xa5u;
+    wiz_NetInfo network;
     int8_t memory_init;
     int8_t phy_link;
     uint16_t tx_before;
@@ -123,6 +193,12 @@ int main(void)
     memory_init = wizchip_init(memory, memory);
     phy_link = wizphy_getphylink();
     printf("PROBE memory_init=%d phy_link=%d\n", memory_init, phy_link);
+    if (!lease_dhcp(&network)) {
+        printf("PROBE dhcp=FAIL\n");
+        return 1;
+    }
+    printf("PROBE dhcp ip=%u.%u.%u.%u\n", network.ip[0], network.ip[1],
+           network.ip[2], network.ip[3]);
 
     printf("PROBE open_result=%d\n",
            socket(PROBE_SOCKET, Sn_MR_UDP, PROBE_PORT, 0u));
