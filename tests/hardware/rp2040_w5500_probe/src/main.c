@@ -241,5 +241,6 @@ int main(void)
     printf("PROBE rx_rd before=%04x after=%04x expected_delta=0009\n",
            rx_before, rx_after);
     close(PROBE_SOCKET);
+    printf("PROBE final_state=00\n");
     return 0;
 }
