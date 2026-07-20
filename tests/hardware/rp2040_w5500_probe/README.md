@@ -1,12 +1,8 @@
 # RP2040 W5500 Pointer Probe
 
-This is the active hardware debug tool. It prints raw W5500 pointer-register
-results over USB CDC and does not run a command shell, network traffic, DHCP,
-watchdog recovery, or host controller.
-
-The probe compares direct sequential writes, direct burst writes, and the
-public setter macros while socket 0 is closed and again after opening it as
-UDP. It restores the pointers after each comparison and closes the socket.
+This is the active hardware debug tool. It acquires a DHCP lease, opens UDP
+port 49002, receives one `0xA5` byte, and verifies that the W5500 RX read
+pointer advances by the eight-byte UDP header plus the payload.
 
 Build on the Pi:
 
@@ -26,4 +22,17 @@ picotool load -v -x /tmp/rp2040-w5500-probe-build/rp2040_w5500_probe.uf2
 ```
 
 Open `/dev/ttyACM0` before reset. The probe begins after USB CDC connects and
-prints `PROBE` records once.
+prints `PROBE` records once. After it reports the lease and receive readiness,
+replace `DEVICE_IP` with the reported address and send the packet from the Pi:
+
+```bash
+python3 -c 'import socket; socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(bytes([0xA5]), ("DEVICE_IP", 49002))'
+```
+
+The successful DHCP/RX portion of the transcript is:
+
+```text
+PROBE dhcp ip=A.B.C.D
+PROBE recv_ready port=49002
+PROBE rx_rd before=.... after=.... expected_delta=0009
+```
