@@ -426,21 +426,29 @@ int8_t close(uint8_t sn) {
     sock_is_sending &= ~(1 << sn);
     sock_remained_size[sn] = 0;
     sock_pack_info[sn] = PACK_NONE;
-    while (getSn_SR(sn) != SOCK_CLOSED);
+    while (getSn_SR(sn) != SOCK_CLOSED) {
+        uint32_t _poll = 0;
+        while (getSn_SR(sn) != SOCK_CLOSED && ++_poll < _WIZCHIP_POLL_MAX_);
+        if (_poll >= _WIZCHIP_POLL_MAX_) { break; }
+    }
     WIZCHIP_SOCK_UNLOCK(sn); return SOCK_OK;
 }
 
 int8_t listen(uint8_t sn) {
+    int8_t ret = SOCK_OK;
     CHECK_SOCKNUM();
     CHECK_TCPMODE();
     CHECK_SOCKINIT();
+    WIZCHIP_SOCK_LOCK(sn);
     setSn_CR(sn, Sn_CR_LISTEN);
     while (getSn_CR(sn));
     while (getSn_SR(sn) != SOCK_LISTEN) {
         close(sn);
-        return SOCKERR_SOCKCLOSED;
+        ret = SOCKERR_SOCKCLOSED; goto lsn_done;
     }
-    return SOCK_OK;
+lsn_done:
+    WIZCHIP_SOCK_UNLOCK(sn);
+    return ret;
 }
 //int8_t connect (uint8_t sn, uint8_t * addr, uint16_t port )
 int8_t connect_W5x00(uint8_t sn, uint8_t * addr, uint16_t port) {
@@ -937,7 +945,7 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
     while (1) {
         freesize = getSn_TX_FSR(sn);
         if (getSn_SR(sn) == SOCK_CLOSED) {
-            return SOCKERR_SOCKCLOSED;
+            ret = SOCKERR_SOCKCLOSED; goto sndto_done;
         }
         if ((sock_io_mode & (1 << sn)) && (len > freesize)) {
             ret = SOCK_BUSY; goto sndto_done;
@@ -974,7 +982,7 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
         while (getSn_CR(sn) && ++_poll < _WIZCHIP_POLL_MAX_);
     }
     if (sock_io_mode & (1 << sn)) {
-        return (int32_t)len;
+        ret = (int32_t)len; goto sndto_done;
     }
     {
         uint32_t _poll = 0;
@@ -996,7 +1004,7 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
                 setSUBR((uint8_t*)&taddr);
             }
 #endif
-            return SOCKERR_TIMEOUT;
+            ret = SOCKERR_TIMEOUT; goto sndto_done;
         }
         if (++_poll > _WIZCHIP_POLL_MAX_) {
             ret = SOCKERR_DEADLINE; goto sndto_done;
@@ -1193,11 +1201,19 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
 #ifndef IPV6_AVAILABLE
             wiz_recv_data(sn, head, 2);
             setSn_CR(sn, Sn_CR_RECV);
-            while (getSn_CR(sn));
+            while (getSn_CR(sn)) {}
 #endif
             // read peer's IP address, port number & packet length
-            sock_remained_size[sn] = head[0];
-            sock_remained_size[sn] = (sock_remained_size[sn] << 8) + head[1] - 2;
+            {
+                uint16_t pkt_len;
+                sock_remained_size[sn] = head[0];
+                pkt_len = ((uint16_t)sock_remained_size[sn] << 8) | head[1];
+                if (pkt_len < 2u) {
+                    close(sn);
+                    ret = SOCKFATAL_PACKLEN; goto rcvfr_done;
+                }
+                sock_remained_size[sn] = pkt_len - 2u;
+            }
 #if _WIZCHIP_ == W5300
             if (sock_remained_size[sn] & 0x01) {
                 sock_remained_size[sn] = sock_remained_size[sn] + 1 - 4;
