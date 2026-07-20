@@ -35,4 +35,5 @@ The successful DHCP/RX portion of the transcript is:
 PROBE dhcp ip=A.B.C.D
 PROBE recv_ready port=49002
 PROBE rx_rd before=.... after=.... expected_delta=0009
+PROBE final_state=00
 ```
