@@ -20,9 +20,11 @@ add_library(w5500_probe_iolibrary STATIC
     "${IOLIBRARY_ROOT}/Ethernet/wizchip_conf.c"
     "${IOLIBRARY_ROOT}/Ethernet/socket.c"
     "${IOLIBRARY_ROOT}/Ethernet/W5500/w5500.c"
+    "${IOLIBRARY_ROOT}/Internet/DHCP/dhcp.c"
 )
 target_include_directories(w5500_probe_iolibrary SYSTEM PUBLIC
     "${IOLIBRARY_ROOT}/Ethernet"
+    "${IOLIBRARY_ROOT}/Internet/DHCP"
 )
 target_compile_definitions(w5500_probe_iolibrary PUBLIC _WIZCHIP_=W5500)
 
@@ -54,6 +56,7 @@ pico_generate_pio_header(w5500_probe_transport
 add_executable(rp2040_w5500_probe src/main.c)
 target_include_directories(rp2040_w5500_probe SYSTEM PRIVATE
     "${IOLIBRARY_ROOT}/Ethernet"
+    "${IOLIBRARY_ROOT}/Internet/DHCP"
     "${WIZNET_PICO_C_PATH}/port/ioLibrary_Driver/inc"
     "${WIZNET_PICO_C_PATH}/port"
 )
