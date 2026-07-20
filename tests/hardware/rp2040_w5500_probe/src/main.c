@@ -20,6 +20,9 @@
 #define PROBE_PORT 49002u
 #define DHCP_BUFFER_SIZE 548u
 #define DHCP_LEASE_TIMEOUT_MS 60000u
+#define PROBE_PAYLOAD 0xa5u
+#define UDP_RECEIVE_HEADER_SIZE 8u
+#define UDP_RECEIVE_TIMEOUT_MS 10000u
 
 static critical_section_t spi_lock;
 static wiznet_spi_handle_t spi_handle;
@@ -169,12 +172,16 @@ static void reset_w5500(void)
 int main(void)
 {
     uint8_t memory[8] = {2u, 2u, 2u, 2u, 2u, 2u, 2u, 2u};
-    uint8_t payload = 0xa5u;
+    uint8_t payload = 0u;
+    uint8_t source_ip[4] = {0};
+    uint16_t source_port = 0u;
     wiz_NetInfo network;
     int8_t memory_init;
     int8_t phy_link;
-    uint16_t tx_before;
-    uint16_t tx_after;
+    uint16_t rx_before;
+    uint16_t rx_after;
+    absolute_time_t deadline;
+    int32_t received = SOCK_BUSY;
 
     stdio_init_all();
     while (!stdio_usb_connected()) {
@@ -200,22 +207,39 @@ int main(void)
     printf("PROBE dhcp ip=%u.%u.%u.%u\n", network.ip[0], network.ip[1],
            network.ip[2], network.ip[3]);
 
-    printf("PROBE open_result=%d\n",
-           socket(PROBE_SOCKET, Sn_MR_UDP, PROBE_PORT, 0u));
-    printf("PROBE open_state=%02x port=%u\n", getSn_SR(PROBE_SOCKET),
-           getSn_PORT(PROBE_SOCKET));
-    tx_before = getSn_TX_WR(PROBE_SOCKET);
-    wiz_send_data(PROBE_SOCKET, &payload, sizeof(payload));
-    setSn_CR(PROBE_SOCKET, Sn_CR_SEND);
-    while (getSn_CR(PROBE_SOCKET) != 0u) {
+    if (socket(PROBE_SOCKET, Sn_MR_UDP, PROBE_PORT, SF_IO_NONBLOCK) !=
+        PROBE_SOCKET) {
+        printf("PROBE udp_open=FAIL\n");
+        return 1;
     }
-    tx_after = getSn_TX_WR(PROBE_SOCKET);
-    printf("PROBE tx_wr before=%04x after=%04x expected=%04x\n", tx_before,
-           tx_after, (uint16_t)(tx_before + sizeof(payload)));
-    close(PROBE_SOCKET);
-    printf("PROBE final_state=%02x\n", getSn_SR(PROBE_SOCKET));
+    printf("PROBE recv_ready port=%u\n", PROBE_PORT);
+    rx_before = getSn_RX_RD(PROBE_SOCKET);
+    deadline = make_timeout_time_ms(UDP_RECEIVE_TIMEOUT_MS);
+    while (!time_reached(deadline)) {
+        received = recvfrom(PROBE_SOCKET, &payload, 1u, source_ip,
+                            &source_port);
+        if (received != SOCK_BUSY) {
+            break;
+        }
+        sleep_ms(10u);
+    }
+    rx_after = getSn_RX_RD(PROBE_SOCKET);
 
-    for (;;) {
-        sleep_ms(1000u);
+    if (received != 1 || payload != PROBE_PAYLOAD) {
+        printf("PROBE recv=FAIL result=%ld payload=%02x\n", (long)received,
+               payload);
+        close(PROBE_SOCKET);
+        return 1;
     }
+    if ((uint16_t)(rx_after - rx_before) !=
+        UDP_RECEIVE_HEADER_SIZE + 1u) {
+        printf("PROBE rx_rd=FAIL before=%04x after=%04x expected_delta=0009\n",
+               rx_before, rx_after);
+        close(PROBE_SOCKET);
+        return 1;
+    }
+    printf("PROBE rx_rd before=%04x after=%04x expected_delta=0009\n",
+           rx_before, rx_after);
+    close(PROBE_SOCKET);
+    return 0;
 }
