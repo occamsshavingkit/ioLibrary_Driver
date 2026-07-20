@@ -97,67 +97,14 @@ static void reset_w5500(void)
     sleep_ms(100u);
 }
 
-static uint16_t read16(uint32_t address)
-{
-    return (uint16_t)(((uint16_t)WIZCHIP_READ(address) << 8) |
-                      WIZCHIP_READ(WIZCHIP_OFFSET_INC(address, 1u)));
-}
-
-static void write16_sequential(uint32_t address, uint16_t value)
-{
-    WIZCHIP_WRITE(address, (uint8_t)(value >> 8));
-    WIZCHIP_WRITE(WIZCHIP_OFFSET_INC(address, 1u), (uint8_t)value);
-}
-
-static void write16_burst(uint32_t address, uint16_t value)
-{
-    uint8_t bytes[2] = {(uint8_t)(value >> 8), (uint8_t)value};
-
-    WIZCHIP_WRITE_BUF(address, bytes, sizeof(bytes));
-}
-
-static void print_result(const char *state, const char *mode,
-                         uint16_t tx, uint16_t rx)
-{
-    printf("PROBE state=%s mode=%s sr=%02x tx=%04x rx=%04x\n", state, mode,
-           getSn_SR(PROBE_SOCKET), tx, rx);
-}
-
-static void run_pointer_write(const char *state, const char *mode,
-                              uint16_t tx_value, uint16_t rx_value)
-{
-    uint16_t saved_tx = read16(Sn_TX_WR(PROBE_SOCKET));
-    uint16_t saved_rx = read16(Sn_RX_RD(PROBE_SOCKET));
-
-    if (mode[0] == 's') {
-        write16_sequential(Sn_TX_WR(PROBE_SOCKET), tx_value);
-        write16_sequential(Sn_RX_RD(PROBE_SOCKET), rx_value);
-    } else if (mode[0] == 'b') {
-        write16_burst(Sn_TX_WR(PROBE_SOCKET), tx_value);
-        write16_burst(Sn_RX_RD(PROBE_SOCKET), rx_value);
-    } else {
-        setSn_TX_WR(PROBE_SOCKET, tx_value);
-        setSn_RX_RD(PROBE_SOCKET, rx_value);
-    }
-
-    print_result(state, mode, read16(Sn_TX_WR(PROBE_SOCKET)),
-                 read16(Sn_RX_RD(PROBE_SOCKET)));
-    write16_sequential(Sn_TX_WR(PROBE_SOCKET), saved_tx);
-    write16_sequential(Sn_RX_RD(PROBE_SOCKET), saved_rx);
-}
-
-static void run_pointer_set(const char *state)
-{
-    run_pointer_write(state, "sequential", 0x0123u, 0x0456u);
-    run_pointer_write(state, "burst", 0x0234u, 0x0567u);
-    run_pointer_write(state, "api", 0x0345u, 0x0678u);
-}
-
 int main(void)
 {
     uint8_t memory[8] = {2u, 2u, 2u, 2u, 2u, 2u, 2u, 2u};
+    uint8_t payload = 0xa5u;
     int8_t memory_init;
     int8_t phy_link;
+    uint16_t tx_before;
+    uint16_t tx_after;
 
     stdio_init_all();
     while (!stdio_usb_connected()) {
@@ -177,11 +124,18 @@ int main(void)
     phy_link = wizphy_getphylink();
     printf("PROBE memory_init=%d phy_link=%d\n", memory_init, phy_link);
 
-    run_pointer_set("closed");
     printf("PROBE open_result=%d\n",
            socket(PROBE_SOCKET, Sn_MR_UDP, PROBE_PORT, 0u));
-    printf("PROBE open_state=%02x\n", getSn_SR(PROBE_SOCKET));
-    run_pointer_set("open");
+    printf("PROBE open_state=%02x port=%u\n", getSn_SR(PROBE_SOCKET),
+           getSn_PORT(PROBE_SOCKET));
+    tx_before = getSn_TX_WR(PROBE_SOCKET);
+    wiz_send_data(PROBE_SOCKET, &payload, sizeof(payload));
+    setSn_CR(PROBE_SOCKET, Sn_CR_SEND);
+    while (getSn_CR(PROBE_SOCKET) != 0u) {
+    }
+    tx_after = getSn_TX_WR(PROBE_SOCKET);
+    printf("PROBE tx_wr before=%04x after=%04x expected=%04x\n", tx_before,
+           tx_after, (uint16_t)(tx_before + sizeof(payload)));
     close(PROBE_SOCKET);
     printf("PROBE final_state=%02x\n", getSn_SR(PROBE_SOCKET));
 
