@@ -78,5 +78,7 @@ target_link_libraries(rp2040_w5500_probe PRIVATE
 )
 pico_enable_stdio_usb(rp2040_w5500_probe 1)
 pico_enable_stdio_uart(rp2040_w5500_probe 0)
+
+target_link_libraries(rp2040_w5500_probe PRIVATE pico_usb_reset)
 pico_add_extra_outputs(rp2040_w5500_probe)
 
