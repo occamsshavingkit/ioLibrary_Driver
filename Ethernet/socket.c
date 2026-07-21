@@ -63,7 +63,7 @@ static uint16_t sock_any_port = SOCK_ANY_PORT_NUM;
 static uint16_t sock_io_mode = 0;
 static uint16_t sock_is_sending = 0;
 
-static uint16_t sock_remained_size[_WIZCHIP_SOCK_NUM_] = {0, 0,};
+static uint16_t sock_remained_size[_WIZCHIP_SOCK_NUM_] = {0};
 
 //M20150601 : For extern decleation
 //static uint8_t  sock_pack_info[_WIZCHIP_SOCK_NUM_] = {0,};
@@ -160,38 +160,6 @@ static uint8_t sock_mode[_WIZCHIP_SOCK_NUM_] = {0,}; // Sn_MR cache (AUD-064)
 
 #endif
 
-
-#if 0 // By lihan  
-static uint8_t addrlenTEST = -1 ;
-
-void setAddrlen_W6x00(uint8_t num) {
-    addrlenTEST = num;
-}
-
-uint8_t  checkAddrlen_W6x00() {
-    //if (addrlenTEST < 0 )
-    if ((addrlenTEST != 4)  && (addrlenTEST != 16)) {
-        perror("Error: addrlen is not initialized");
-    } else {
-        printf("addrlenTEST %d \r\n", addrlenTEST) ;
-    }
-    return addrlenTEST;
-}
-
-inline void inline_setAddrlen_W6x00(uint8_t num) {
-#if (_WIZCHIP_ == 6100) || (_WIZCHIP_ == 6300)
-    setAddrlen_W6x00(num);
-#endif
-}
-
-inline uint8_t inline_CheckAddrlen_W6x00(void) {
-#if (_WIZCHIP_ == 6100) || (_WIZCHIP_ == 6300)
-    return  checkAddrlen_W6x00();
-#else
-    return 4;
-#endif
-}
-#endif
 
 
 
@@ -579,7 +547,6 @@ disconn_done:
 }
 
 
-#if 1
 int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
     uint8_t tmp = 0;
     uint16_t freesize = 0;
@@ -604,7 +571,7 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
         tmp = getSn_IR(sn);
         if (tmp & Sn_IR_SENDOK) {
             setSn_IR(sn, Sn_IR_SENDOK);
-            //M20150401 : Typing Error
+// Fixed: removed trailing semicolon from SOCK_ANY_PORT_NUM macro below
             //#if _WZICHIP_ == 5200
 #if _WIZCHIP_ == 5200
             if (getSn_TX_RD(sn) != sock_next_rd[sn]) {
@@ -671,38 +638,6 @@ send_done:
     WIZCHIP_SOCK_UNLOCK(sn);
     return ret;
 }
-#else //for speed optimization, by lihan
-int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
-    uint8_t tmp = 0;
-    uint16_t freesize = 0;
-
-    // tx_bufferSize / 4
-
-    //if (len > 4096) len = 4096; // check size not to exceed MAX size.//
-    //if (len > 8192) len = 8192; // check size not to exceed MAX siz
-    //if (len > 16384) len = 16384; // check size not to exceed MAX size.
-    //if (len > 32768) len = 32768; // check size not to exceed MAX size.
-#define __FREESIZE__(i)  1024 * i
-#define __FREESIZE__Value 8
-    if (len > __FREESIZE__(__FREESIZE__Value)) {
-        len = __FREESIZE__(__FREESIZE__Value);    // check size not to exceed MAX size.//tse
-    }
-
-    while (1) {
-        freesize = (uint16_t)getSn_TX_FSR(sn);
-        if (len <= freesize) {
-            break;
-        }
-    }
-    wiz_send_data(sn, buf, len);
-    setSn_CR(sn, Sn_CR_SEND);
-
-    while (getSn_CR(sn));  // wait to process the command...
-    sock_is_sending |= (1 << sn);
-
-    return len;
-}
-#endif
 int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len) { //lihan
     uint8_t  tmp = 0;
     uint16_t recvsize = 0;
