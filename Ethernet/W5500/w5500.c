@@ -62,6 +62,7 @@
 #if   (_WIZCHIP_ == 5500)
 ////////////////////////////////////////////////////
 
+__attribute__((optimize("O2")))
 uint8_t  WIZCHIP_READ(uint32_t AddrSel) {
     uint8_t ret;
     uint8_t spi_data[3];
@@ -89,6 +90,7 @@ uint8_t  WIZCHIP_READ(uint32_t AddrSel) {
     return ret;
 }
 
+__attribute__((optimize("O2")))
 void     WIZCHIP_WRITE(uint32_t AddrSel, uint8_t wb) {
     uint8_t spi_data[4];
 
@@ -116,6 +118,7 @@ void     WIZCHIP_WRITE(uint32_t AddrSel, uint8_t wb) {
     WIZCHIP_CRITICAL_EXIT();
 }
 
+__attribute__((optimize("O2")))
 void     WIZCHIP_READ_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len) {
     uint8_t spi_data[3];
     uint16_t i;
@@ -145,6 +148,7 @@ void     WIZCHIP_READ_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len) {
     WIZCHIP_CRITICAL_EXIT();
 }
 
+__attribute__((optimize("O2")))
 void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len) {
     uint8_t spi_data[3];
     uint16_t i;
