@@ -75,6 +75,16 @@ static void wizchip_sock_lock_default(uint8_t sn)     { (void)sn; }
 static void wizchip_sock_unlock_default(uint8_t sn)   { (void)sn; }
 static void wizchip_global_lock_default(void)          {}
 static void wizchip_global_unlock_default(void)        {}
+static void wizchip_wdt_kick_default(void)              {}
+static void wizchip_phy_callback_default(uint8_t lu)   { (void)lu; }
+
+static void (*wizchip_wdt_kick_cb)(void)       = wizchip_wdt_kick_default;
+static void (*wizchip_phy_link_cb)(uint8_t)    = wizchip_phy_callback_default;
+
+void __attribute__((weak)) wizchip_wdt_kick(void)                      { if (wizchip_wdt_kick_cb) wizchip_wdt_kick_cb(); }
+void __attribute__((weak)) reg_wizchip_wdt_cbfunc(void (*kick)(void))  { wizchip_wdt_kick_cb = kick; }
+void __attribute__((weak)) wizchip_phy_link_callback(void)             { if (wizchip_phy_link_cb) wizchip_phy_link_cb(0); }
+void __attribute__((weak)) reg_wizchip_phy_cbfunc(void (*cb)(uint8_t)) { wizchip_phy_link_cb = cb; }
 
 /**
     @brief Default function to disable interrupt.
@@ -1059,6 +1069,7 @@ int8_t wizphy_getphylink(void) {
 
 #elif ((_WIZCHIP_ == W6100)||(_WIZCHIP_ == W6300))
 
+
 #if (_PHY_IO_MODE_ == _PHY_IO_MODE_PHYCR_)
     return (getPHYSR() & PHYSR_LNK);
 #elif (_PHY_IO_MODE_ == _PHY_IO_MODE_MII_)
@@ -1071,6 +1082,13 @@ int8_t wizphy_getphylink(void) {
 #else
     tmp = -1;
 #endif
+    {
+        static int8_t last_link = -1;
+        if (tmp != last_link) {
+            last_link = tmp;
+            wizchip_phy_link_callback();
+        }
+    }
     return tmp;
 }
 

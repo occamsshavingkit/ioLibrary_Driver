@@ -59,11 +59,18 @@
 #define _W5500_SPI_FDM_OP_LEN2_     0x02
 #define _W5500_SPI_FDM_OP_LEN4_     0x03
 
+#ifndef WIZCHIP_SPI_OPTIMIZE
+#if defined(__has_attribute) && __has_attribute(optimize)
+#define WIZCHIP_SPI_OPTIMIZE __attribute__((optimize("O2")))
+#else
+#define WIZCHIP_SPI_OPTIMIZE
+#endif
+#endif
+
 #if   (_WIZCHIP_ == 5500)
 ////////////////////////////////////////////////////
 
-__attribute__((optimize("O2")))
-uint8_t  WIZCHIP_READ(uint32_t AddrSel) {
+WIZCHIP_SPI_OPTIMIZE uint8_t  WIZCHIP_READ(uint32_t AddrSel) {
     uint8_t ret;
     uint8_t spi_data[3];
 
@@ -90,8 +97,7 @@ uint8_t  WIZCHIP_READ(uint32_t AddrSel) {
     return ret;
 }
 
-__attribute__((optimize("O2")))
-void     WIZCHIP_WRITE(uint32_t AddrSel, uint8_t wb) {
+WIZCHIP_SPI_OPTIMIZE void     WIZCHIP_WRITE(uint32_t AddrSel, uint8_t wb) {
     uint8_t spi_data[4];
 
     WIZCHIP_CRITICAL_ENTER();
@@ -118,8 +124,7 @@ void     WIZCHIP_WRITE(uint32_t AddrSel, uint8_t wb) {
     WIZCHIP_CRITICAL_EXIT();
 }
 
-__attribute__((optimize("O2")))
-void     WIZCHIP_READ_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len) {
+WIZCHIP_SPI_OPTIMIZE void     WIZCHIP_READ_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len) {
     uint8_t spi_data[3];
     uint16_t i;
 
@@ -148,8 +153,7 @@ void     WIZCHIP_READ_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len) {
     WIZCHIP_CRITICAL_EXIT();
 }
 
-__attribute__((optimize("O2")))
-void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len) {
+WIZCHIP_SPI_OPTIMIZE void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len) {
     uint8_t spi_data[3];
     uint16_t i;
 

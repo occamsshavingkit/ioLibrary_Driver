@@ -399,6 +399,7 @@ int8_t close(uint8_t sn) {
     while (getSn_SR(sn) != SOCK_CLOSED) {
         uint32_t _poll = 0;
         while (getSn_SR(sn) != SOCK_CLOSED && ++_poll < _WIZCHIP_POLL_MAX_);
+        wizchip_wdt_kick();
         if (_poll >= _WIZCHIP_POLL_MAX_) { break; }
     }
     WIZCHIP_SOCK_UNLOCK(sn); return SOCK_OK;

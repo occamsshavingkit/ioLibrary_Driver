@@ -1317,6 +1317,11 @@ int8_t wizchip_unsolicited(void);
 int8_t wizchip_getprefix(wiz_Prefix * prefix);
 #endif
 
+void wizchip_wdt_kick(void);
+void reg_wizchip_wdt_cbfunc(void (*kick)(void));
+void wizchip_phy_link_callback(void);
+void reg_wizchip_phy_cbfunc(void (*callback)(uint8_t link_up));
+
 #if (_WIZCHIP_ == W5100 || _WIZCHIP_ == W5100S || _WIZCHIP_ == W5200 || _WIZCHIP_ == W5300 || _WIZCHIP_ == W5500)
 /**
     @ingroup extra_functions
