@@ -1378,7 +1378,7 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len);
 		((WIZCHIP_READ(INTLEVEL) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(INTLEVEL,1)))
 */
 #define getINTLEVEL() \
-		(((uint16_t)WIZCHIP_READ(INTLEVEL) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(INTLEVEL,1)))
+		wizchip_read16_5500(INTLEVEL)
 
 /**
     @ingroup Common_register_access_function
@@ -1473,7 +1473,7 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len);
 		((WIZCHIP_READ(_RTR_) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(_RTR_,1)))
 */
 #define getRTR() \
-		(((uint16_t)WIZCHIP_READ(_RTR_) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(_RTR_,1)))
+		wizchip_read16_5500(_RTR_)
 
 
 /**
@@ -1574,7 +1574,7 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len);
 		((WIZCHIP_READ(PSID) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(PSID,1)))
 */
 #define getPSID() \
-		(((uint16_t)WIZCHIP_READ(PSID) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(PSID,1)))
+		wizchip_read16_5500(PSID)
 
 /**
     @ingroup Common_register_access_function
@@ -1599,7 +1599,7 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len);
 		((WIZCHIP_READ(PMRU) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(PMRU,1)))
 */
 #define getPMRU() \
-		(((uint16_t)WIZCHIP_READ(PMRU) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(PMRU,1)))
+		wizchip_read16_5500(PMRU)
 
 /**
     @ingroup Common_register_access_function
@@ -1625,7 +1625,7 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len);
 	((WIZCHIP_READ(UPORTR) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(UPORTR,1)))
 */
 #define getUPORTR() \
-	(((uint16_t)WIZCHIP_READ(UPORTR) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(UPORTR,1)))
+		wizchip_read16_5500(UPORTR)
 
 /**
     @ingroup Common_register_access_function
@@ -1772,7 +1772,7 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len);
 		((WIZCHIP_READ(Sn_PORT(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_PORT(sn),1)))
 */
 #define getSn_PORT(sn) \
-		(((uint16_t)WIZCHIP_READ(Sn_PORT(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_PORT(sn),1)))
+		wizchip_read16_5500(Sn_PORT(sn))
 
 /**
     @ingroup Socket_register_access_function
@@ -1840,7 +1840,7 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len);
 		((WIZCHIP_READ(Sn_DPORT(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_DPORT(sn),1)))
 */
 #define getSn_DPORT(sn) \
-		(((uint16_t)WIZCHIP_READ(Sn_DPORT(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_DPORT(sn),1)))
+		wizchip_read16_5500(Sn_DPORT(sn))
 #define getSn_DPORTR(sn)  getSn_DPORT(sn)
 /**
     @ingroup Socket_register_access_function
@@ -1867,7 +1867,7 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len);
 		((WIZCHIP_READ(Sn_MSSR(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_MSSR(sn),1)))
 */
 #define getSn_MSSR(sn) \
-		(((uint16_t)WIZCHIP_READ(Sn_MSSR(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_MSSR(sn),1)))
+		wizchip_read16_5500(Sn_MSSR(sn))
 
 /**
     @ingroup Socket_register_access_function
@@ -1972,7 +1972,7 @@ uint16_t getSn_TX_FSR(uint8_t sn);
 		((WIZCHIP_READ(Sn_TX_RD(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_TX_RD(sn),1)))
 */
 #define getSn_TX_RD(sn) \
-		(((uint16_t)WIZCHIP_READ(Sn_TX_RD(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_TX_RD(sn),1)))
+		wizchip_read16_5500(Sn_TX_RD(sn))
 
 /**
     @ingroup Socket_register_access_function
@@ -2001,7 +2001,7 @@ uint16_t getSn_TX_FSR(uint8_t sn);
 		((WIZCHIP_READ(Sn_TX_WR(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_TX_WR(sn),1)))
 */
 #define getSn_TX_WR(sn) \
-		(((uint16_t)WIZCHIP_READ(Sn_TX_WR(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_TX_WR(sn),1)))
+		wizchip_read16_5500(Sn_TX_WR(sn))
 
 
 /**
@@ -2040,7 +2040,7 @@ uint16_t getSn_RX_RSR(uint8_t sn);
 		((WIZCHIP_READ(Sn_RX_RD(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_RX_RD(sn),1)))
 */
 #define getSn_RX_RD(sn) \
-		(((uint16_t)WIZCHIP_READ(Sn_RX_RD(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_RX_RD(sn),1)))
+		wizchip_read16_5500(Sn_RX_RD(sn))
 
 /**
     @ingroup Socket_register_access_function
@@ -2054,7 +2054,7 @@ uint16_t getSn_RX_RSR(uint8_t sn);
 		((WIZCHIP_READ(Sn_RX_WR(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_RX_WR(sn),1)))
 */
 #define getSn_RX_WR(sn) \
-		(((uint16_t)WIZCHIP_READ(Sn_RX_WR(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_RX_WR(sn),1)))
+		wizchip_read16_5500(Sn_RX_WR(sn))
 
 /**
     @ingroup Socket_register_access_function
@@ -2081,7 +2081,7 @@ uint16_t getSn_RX_RSR(uint8_t sn);
 		((WIZCHIP_READ(Sn_FRAG(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_FRAG(sn),1)))
 */
 #define getSn_FRAG(sn) \
-      (((uint16_t)WIZCHIP_READ(Sn_FRAG(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_FRAG(sn),1)))
+		wizchip_read16_5500(Sn_FRAG(sn))
 
 /**
     @ingroup Socket_register_access_function

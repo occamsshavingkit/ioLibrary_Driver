@@ -359,10 +359,12 @@ int8_t socket(uint8_t sn, uint8_t protocol, uint16_t port, uint8_t flag) {
     setSn_MR2(sn, flag & 0x03);
 #endif
     if (!port) {
+        WIZCHIP_GLOBAL_LOCK();
         port = sock_any_port++;
         if (sock_any_port == 0xFFF0) {
             sock_any_port = SOCK_ANY_PORT_NUM;
         }
+        WIZCHIP_GLOBAL_UNLOCK();
     }
     setSn_PORTR(sn, port);
     setSn_CR(sn, Sn_CR_OPEN);
@@ -583,6 +585,7 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
     uint16_t freesize = 0;
     int32_t ret;
     WIZCHIP_SOCK_LOCK(sn);
+    if (buf == 0 && len > 0) { ret = SOCKERR_ARG; goto send_done; }
     /*
         The below codes can be omitted for optmization of speed
     */
@@ -705,6 +708,7 @@ int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len) { //lihan
     uint16_t recvsize = 0;
     int32_t ret;
     WIZCHIP_SOCK_LOCK(sn);
+    if (buf == 0 && len > 0) { ret = SOCKERR_ARG; goto recv_done; }
     /*
         The below codes can be omitted for optmization of speed
     */
@@ -857,6 +861,7 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
     uint32_t taddr;
     int32_t ret;
     WIZCHIP_SOCK_LOCK(sn);
+    if (buf == 0 && len > 0) { ret = SOCKERR_ARG; goto sndto_done; }
 
     /*
         The below codes can be omitted for optmization of speed
