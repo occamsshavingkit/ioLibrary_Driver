@@ -1084,6 +1084,10 @@ int8_t wizphy_getphypmode(void);             ///< get the power mode of PHY in W
 
 #if _WIZCHIP_ == W5100S || _WIZCHIP_ == W5500
 void   wizphy_reset(void);                   ///< Reset phy. Vailid only in W5500
+void   wizphy_powerdown(void);               ///< Power-down PHY (OPMDC_PDOWN)
+void   wizphy_powerup(void);                 ///< Power-up PHY from power-down
+void   wiznet_wol_enable(uint8_t sn);        ///< Enable Wake-on-LAN on socket
+void   wiznet_wol_disable(void);             ///< Disable Wake-on-LAN
 /**
     @ingroup extra_functions
     @brief Set the phy information for WIZCHIP without power mode

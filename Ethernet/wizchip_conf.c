@@ -1092,6 +1092,46 @@ int8_t wizphy_getphylink(void) {
     return tmp;
 }
 
+#if _WIZCHIP_ == W5500
+
+void wizphy_powerdown(void) {
+    setPHYCFGR(PHYCFGR_OPMDC_PDOWN);
+    setPHYCFGR(PHYCFGR_OPMDC_PDOWN | PHYCFGR_OPMD);
+}
+
+void wizphy_powerup(void) {
+    setPHYCFGR(PHYCFGR_OPMDC_ALLA);
+    setPHYCFGR(PHYCFGR_OPMDC_ALLA | PHYCFGR_OPMD);
+}
+
+void wiznet_wol_enable(uint8_t sn) {
+    (void)sn;
+    setMR(getMR() | MR_WOL);
+}
+
+void wiznet_wol_disable(void) {
+    setMR(getMR() & ~MR_WOL);
+}
+
+#elif _WIZCHIP_ == W5100S
+
+void wizphy_powerdown(void) {
+    uint16_t tmp = wiz_mdio_read(PHYMDIO_BMCR);
+    tmp |= BMCR_PWDN;
+    wiz_mdio_write(PHYMDIO_BMCR, tmp);
+}
+
+void wizphy_powerup(void) {
+    uint16_t tmp = wiz_mdio_read(PHYMDIO_BMCR);
+    tmp &= ~BMCR_PWDN;
+    wiz_mdio_write(PHYMDIO_BMCR, tmp);
+}
+
+void wiznet_wol_enable(uint8_t sn) { (void)sn; }
+void wiznet_wol_disable(void) {}
+
+#endif
+
 #if _WIZCHIP_ > W5100
 
 int8_t wizphy_getphypmode(void) {
