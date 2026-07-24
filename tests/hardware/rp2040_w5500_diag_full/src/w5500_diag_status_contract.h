@@ -15,7 +15,8 @@ typedef enum {
 } w5500_diag_board_status_t;
 
 typedef void (*w5500_diag_status_registrar_t)(uint8_t (*check_busy)(void),
-                                               uint8_t (*get_error)(void));
+                                                int8_t (*get_error)(void),
+                                                void (*clear_error)(void));
 
 w5500_diag_board_status_t w5500_diag_status_contract_classify(
     bool expected, w5500_diag_status_registrar_t registrar);

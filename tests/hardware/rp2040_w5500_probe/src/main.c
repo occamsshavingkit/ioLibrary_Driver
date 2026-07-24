@@ -25,8 +25,8 @@ static const wiznet_spi_config_t spi_config = {
     .clock_pin = 21,
     .irq_pin = 24,
     .reset_pin = 25,
-    .clock_div_major = PIO_CLOCK_DIV_MAJOR,
-    .clock_div_minor = PIO_CLOCK_DIV_MINOR,
+    .clock_div_major = 2u,
+    .clock_div_minor = 0u,
 };
 
 static void enter_spi_lock(void)
@@ -69,6 +69,26 @@ static void write_burst(uint8_t *buffer, uint16_t length)
     (*spi_handle)->write_buffer(buffer, length);
 }
 
+static uint8_t transport_busy(void)
+{
+    return spi_handle != NULL &&
+           wiznet_spi_pio_get_state(spi_handle) == WIZNET_SPI_TRANSFERRING;
+}
+
+static int8_t transport_error(void)
+{
+    return spi_handle != NULL
+               ? (int8_t)wiznet_spi_pio_get_last_error(spi_handle)
+               : (int8_t)PICO_ERROR_INVALID_STATE;
+}
+
+static void clear_transport_error(void)
+{
+    if (spi_handle != NULL) {
+        wiznet_spi_pio_clear_last_error(spi_handle);
+    }
+}
+
 static bool init_transport(void)
 {
     spi_handle = wiznet_spi_pio_open(&spi_config);
@@ -83,6 +103,8 @@ static bool init_transport(void)
     reg_wizchip_cs_cbfunc(select_w5500, deselect_w5500);
     reg_wizchip_spi_cbfunc(read_byte, write_byte);
     reg_wizchip_spiburst_cbfunc(read_burst, write_burst);
+    reg_wizchip_spistatus_cbfunc(transport_busy, transport_error,
+                                 clear_transport_error);
     return true;
 }
 

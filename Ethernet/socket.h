@@ -88,6 +88,24 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
+
+#ifndef WIZCHIP_STATE_T_DEFINED
+typedef enum {
+    WIZCHIP_STATE_UNINIT = 0,
+    WIZCHIP_STATE_READY,
+    WIZCHIP_STATE_FAULTED
+} wizchip_state_t;
+
+#define WIZCHIP_STATE_T_DEFINED
+#define WIZCHIP_STATE_UNINITIALIZED WIZCHIP_STATE_UNINIT
+#endif
+
+wizchip_state_t wizchip_get_state(void);
+int8_t wizchip_get_last_error(void);
+void wizchip_clear_last_error(void);
+int8_t wizchip_recover(void);
+
 #include "wizchip_conf.h"
 
 #define SOCKET                uint8_t  ///< SOCKET type define for legacy driver
@@ -111,6 +129,8 @@ extern "C" {
 #define SOCKERR_DATALEN       (SOCK_ERROR - 14)    ///< Data length is zero or greater than buffer max size.
 #define SOCKERR_BUFFER        (SOCK_ERROR - 15)    ///< Socket buffer is not enough for data communication.
 #define SOCKERR_DEADLINE      (SOCK_ERROR - 16)    ///< Hardware polling deadline exceeded
+#define SOCKERR_IO            (-3)
+#define SOCKERR_NOTREADY      (-4)
 
 #define SOCKFATAL_PACKLEN     (SOCK_FATAL - 1)     ///< Invalid packet length. Fatal Error.
 
@@ -142,6 +162,13 @@ extern "C" {
 #endif
 
 #define SF_IO_NONBLOCK           0x01              ///< Socket nonblock io mode. It used parameter in \ref socket().
+
+#if _WIZCHIP_ == 5500
+#define SF_TCP_VALID_MASK        (SF_TCP_NODELAY | SF_IO_NONBLOCK)
+#define SF_UDP_VALID_MASK        (SF_IGMP_VER2 | SF_MULTI_ENABLE | SF_BROAD_BLOCK | SF_UNI_BLOCK | SF_IO_NONBLOCK)
+#define SF_MACRAW_VALID_MASK     (SF_ETHER_OWN | SF_BROAD_BLOCK | SF_MULTI_BLOCK | SF_IPv6_BLOCK | SF_IO_NONBLOCK)
+#define SF_IPRAW_VALID_MASK      (SF_IO_NONBLOCK)
+#endif
 
 /*
     UDP & MACRAW Packet Infomation
@@ -272,9 +299,14 @@ int8_t  socket(uint8_t sn, uint8_t protocol, uint16_t port, uint8_t flag);
     @param sn Socket number. It should be <b>0 ~ @ref \_WIZCHIP_SOCK_NUM_</b>.
 
     @return @b Success : @ref SOCK_OK \n
-           @b Fail    : @ref SOCKERR_SOCKNUM - Invalid socket number
+           @b Fail    : @ref SOCKERR_SOCKNUM - Invalid socket number \n
+                        @ref SOCKERR_DEADLINE - Close was not accepted or completed before the deadline
 */
 int8_t  close(uint8_t sn);
+
+/* Internal lifecycle hooks. Callers must hold the corresponding socket lock. */
+void wizchip_socket_state_reset_one(uint8_t sn);
+void wizchip_socket_state_reset(void);
 
 /**
     @ingroup WIZnet_socket_APIs
@@ -319,7 +351,6 @@ int8_t  listen(uint8_t sn);
          In block io mode, it does not return until connection is completed. \n
          In Non-block io mode(@ref SF_IO_NONBLOCK), it returns @ref SOCK_BUSY immediately.
 */
-static int8_t connect_IO_6(uint8_t sn, uint8_t * addr, uint16_t port, uint8_t addrlen);
 //int8_t connect(uint8_t sn, uint8_t * addr, uint16_t port, uint8_t addrlen);
 
 /**
@@ -347,14 +378,16 @@ int8_t  disconnect(uint8_t sn);
             In block io mode, It doesn't return until data send is completed - socket buffer size is greater than data. \n
             In non-block io mode, It return @ref SOCK_BUSY immediately when socket buffer is not enough. \n
     @param sn Socket number. It should be <b>0 ~ @ref \_WIZCHIP_SOCK_NUM_</b>.
-    @param buf Pointer buffer containing data to be sent.
-    @param len The byte length of data in buf.
+    @param buf Pointer buffer containing data to be sent. It may be null only when <i>len</i> is zero.
+    @param len The byte length of data in buf. Zero returns 0 without accessing the socket or buffer.
     @return	@b Success : The sent data size \n
             @b Fail    : \n @ref SOCKERR_SOCKSTATUS - Invalid socket status for socket operation \n
                             @ref SOCKERR_TIMEOUT    - Timeout occurred \n
                             @ref SOCKERR_SOCKMODE 	- Invalid operation in the socket \n
                             @ref SOCKERR_SOCKNUM    - Invalid socket number \n
-                            @ref SOCKERR_DATALEN    - zero data length \n
+                            @ref SOCKERR_ARG        - Null buffer with nonzero length \n
+                            @ref SOCKERR_NOTREADY   - Chip is not ready \n
+                            @ref SOCKERR_IO         - Socket is faulted \n
                             @ref SOCK_BUSY          - Socket is busy.
 */
 int32_t send(uint8_t sn, uint8_t * buf, uint16_t len);
@@ -369,14 +402,16 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len);
             In non-block io mode, it return @ref SOCK_BUSY immediately when <I>len</I> is greater than data size in socket buffer. \n
 
     @param sn  Socket number. It should be <b>0 ~ @ref \_WIZCHIP_SOCK_NUM_</b>.
-    @param buf Pointer buffer to read incoming data.
-    @param len The max data length of data in buf.
+    @param buf Pointer buffer to read incoming data. It may be null only when <i>len</i> is zero.
+    @param len The max data length of data in buf. Zero returns 0 without accessing the socket or buffer.
     @return	@b Success : The real received data size \n
             @b Fail    :\n
                        @ref SOCKERR_SOCKSTATUS - Invalid socket status for socket operation \n
                        @ref SOCKERR_SOCKMODE   - Invalid operation in the socket \n
                        @ref SOCKERR_SOCKNUM    - Invalid socket number \n
-                       @ref SOCKERR_DATALEN    - zero data length \n
+                       @ref SOCKERR_ARG        - Null buffer with nonzero length \n
+                       @ref SOCKERR_NOTREADY   - Chip is not ready \n
+                       @ref SOCKERR_IO         - Socket is faulted \n
                        @ref SOCK_BUSY          - Socket is busy.
 */
 int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len);
@@ -386,8 +421,8 @@ int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len);
     @brief Send datagram to the peer specifed by destination IP address and port number passed as parameter.
     @details It sends datagram data by using UDP,IPRAW, or MACRAW mode SOCKET.
     @param sn SOCKET number. It should be <b>0 ~ @ref _WIZCHIP_SOCK_NUM_</b>.
-    @param buf Pointer of data buffer to be sent.
-    @param len The byte length of data in buf.
+    @param buf Pointer of data buffer to be sent. It may be null only when <i>len</i> is zero.
+    @param len The byte length of data in buf. Zero returns 0 without locking or buffer access.
     @param addr Pointer variable of destination IPv6 or IPv4 address.
     @param port Destination port number.
     @param addrlen the length of <i>addr</i>. \n
@@ -397,8 +432,9 @@ int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len);
                        @ref SOCKERR_SOCKMODE    - Invalid operation in the SOCKET \n
                        @ref SOCKERR_SOCKSTATUS  - Invalid SOCKET status for SOCKET operation \n
                        @ref SOCKERR_IPINVALID   - Invalid IP address\n
-                       @ref SOCKERR_PORTZERO    - Destination port number is zero\n
-                       @ref SOCKERR_DATALEN     - Invalid data length \n
+                        @ref SOCKERR_PORTZERO    - Destination port number is zero\n
+                        @ref SOCKERR_ARG         - Null buffer with nonzero length \n
+                        @ref SOCKERR_IO          - Socket is faulted \n
                        @ref SOCKERR_SOCKCLOSED  - SOCKET unexpectedly closed \n
                        @ref SOCKERR_TIMEOUT     - Timeout occurred \n
                        @ref SOCK_BUSY           - SOCKET is busy.
@@ -409,15 +445,14 @@ int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len);
          In non-block io mode(@ref SF_IO_NONBLOCK), It return @ref SOCK_BUSY immediately when SOCKET transimttable buffer size is not enough.
 */
 //int32_t sendto(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * addr, uint16_t port, uint8_t addrlen);
-static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * addr, uint16_t port, uint8_t addrlen);
 
 /**
     @ingroup WIZnet_socket_APIs
     @brief Receive datagram from a peer
     @details It can read a data received from a peer by using UDP, IPRAW, or MACRAW mode SOCKET.
     @param sn   SOCKET number. It should be <b>0 ~ @ref _WIZCHIP_SOCK_NUM_</b>.
-    @param buf  Pointer buffer to be saved the received data.
-    @param len  The max read data length. \n
+    @param buf  Pointer buffer to be saved the received data. It may be null only when <i>len</i> is zero.
+    @param len  The max read data length. Zero returns 0 without locking or buffer access. \n
                When the received packet size <= <i>len</i>, it can read data as many as the packet size. \n
                When others, it can read data as many as len and remain to the rest data of the packet.
     @param addr Pointer variable of destination IP address.\n
@@ -433,8 +468,9 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
                   when the destination has a IPv6 address, it is set to 16.
     @return   Success : The real received data size. It may be equal to <i>len</i> or small.\n
             Fail    : @ref SOCKERR_SOCKMODE   - Invalid operation in the socket \n
-                      @ref SOCKERR_SOCKNUM    - Invalid socket number \n
-                      @ref SOCKERR_ARG        - Invalid parameter such as <i>addr</i>, <i>port</i>
+                       @ref SOCKERR_SOCKNUM    - Invalid socket number \n
+                       @ref SOCKERR_ARG        - Invalid parameter such as <i>addr</i>, <i>port</i>
+                       @ref SOCKERR_IO         - Socket is faulted \n
                       @ref SOCK_BUSY          - SOCKET is busy.
     @note It is valid only in @ref Sn_MR_UDP4, @ref Sn_MR_UDP6, @ref Sn_MR_UDPD, @ref Sn_MR_IPRAW4, @ref Sn_MR_IPRAW6, and @ref Sn_MR_MACRAW. \n
          When SOCKET is opened with @ref Sn_MR_MACRAW or When it reads the the remained data of the previous datagram packet,
@@ -444,7 +480,6 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
          In non-block io mode(@ref SF_IO_NONBLOCK), it return @ref SOCK_BUSY immediately when SOCKET RX buffer is empty. \n
 */
 //int32_t recvfrom(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * addr, uint16_t *port, uint8_t *addrlen);
-static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * addr, uint16_t *port, uint8_t *addrlen);
 
 
 /////////////////////////////
@@ -740,5 +775,3 @@ int32_t recvfrom_W6x00(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * addr, 
 #endif
 
 #endif   // _SOCKET_H_
-
-

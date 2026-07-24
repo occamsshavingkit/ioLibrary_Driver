@@ -1360,10 +1360,8 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len);
     @param (uint16_t)intlevel Value to set @ref INTLEVEL register.
     @sa getINTLEVEL()
 */
-#define setINTLEVEL(intlevel)  {\
-		WIZCHIP_WRITE(INTLEVEL,   (uint8_t)(intlevel >> 8)); \
-		WIZCHIP_WRITE(WIZCHIP_OFFSET_INC(INTLEVEL,1), (uint8_t) intlevel); \
-	}
+#define setINTLEVEL(intlevel) \
+		wizchip_write16_5500(INTLEVEL, (uint16_t)(intlevel))
 
 
 /**
@@ -1456,10 +1454,8 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len);
     @param (uint16_t)rtr Value to set @ref _RTR_ register.
     @sa getRTR()
 */
-#define setRTR(rtr)   {\
-		WIZCHIP_WRITE(_RTR_,   (uint8_t)(rtr >> 8)); \
-		WIZCHIP_WRITE(WIZCHIP_OFFSET_INC(_RTR_,1), (uint8_t) rtr); \
-	}
+#define setRTR(rtr) \
+		wizchip_write16_5500(_RTR_, (uint16_t)(rtr))
 
 /**
     @ingroup Common_register_access_function
@@ -1556,10 +1552,8 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len);
     @param (uint16_t)psid Value to set @ref PSID register.
     @sa getPSID()
 */
-#define setPSID(psid)  {\
-		WIZCHIP_WRITE(PSID,   (uint8_t)(psid >> 8)); \
-		WIZCHIP_WRITE(WIZCHIP_OFFSET_INC(PSID,1), (uint8_t) psid); \
-	}
+#define setPSID(psid) \
+		wizchip_write16_5500(PSID, (uint16_t)(psid))
 
 /**
     @ingroup Common_register_access_function
@@ -1582,10 +1576,8 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len);
     @param (uint16_t)pmru Value to set @ref PMRU register.
     @sa getPMRU()
 */
-#define setPMRU(pmru) { \
-		WIZCHIP_WRITE(PMRU,   (uint8_t)(pmru>>8)); \
-		WIZCHIP_WRITE(WIZCHIP_OFFSET_INC(PMRU,1), (uint8_t) pmru); \
-	}
+#define setPMRU(pmru) \
+		wizchip_write16_5500(PMRU, (uint16_t)(pmru))
 
 /**
     @ingroup Common_register_access_function
@@ -1754,10 +1746,8 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len);
     @param (uint16_t)port Value to set @ref Sn_PORT.
     @sa getSn_PORT()
 */
-#define setSn_PORT(sn, port)  { \
-		WIZCHIP_WRITE(Sn_PORT(sn),   (uint8_t)(port >> 8)); \
-		WIZCHIP_WRITE(WIZCHIP_OFFSET_INC(Sn_PORT(sn),1), (uint8_t) port); \
-	}
+#define setSn_PORT(sn, port) \
+		wizchip_write16_5500(Sn_PORT(sn), (uint16_t)(port))
 #define setSn_PORTR  setSn_PORT
 /**
     @ingroup Socket_register_access_function
@@ -1821,10 +1811,8 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len);
     @param (uint16_t)dport Value to set @ref Sn_DPORT
     @sa getSn_DPORT()
 */
-#define setSn_DPORT(sn, dport) { \
-		WIZCHIP_WRITE(Sn_DPORT(sn),   (uint8_t) (dport>>8)); \
-		WIZCHIP_WRITE(WIZCHIP_OFFSET_INC(Sn_DPORT(sn),1), (uint8_t)  dport); \
-	}
+#define setSn_DPORT(sn, dport) \
+		wizchip_write16_5500(Sn_DPORT(sn), (uint16_t)(dport))
 #define setSn_DPORTR(sn, dport)   setSn_DPORT(sn,dport) ///< For compatible ioLibrary. Refer to @ref Sn_DPORTR.
 
 /**
@@ -1849,10 +1837,8 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len);
     @param (uint16_t)mss Value to set @ref Sn_MSSR
     @sa setSn_MSSR()
 */
-#define setSn_MSSR(sn, mss) { \
-		WIZCHIP_WRITE(Sn_MSSR(sn),   (uint8_t)(mss>>8)); \
-		WIZCHIP_WRITE(WIZCHIP_OFFSET_INC(Sn_MSSR(sn),1), (uint8_t) mss); \
-	}
+#define setSn_MSSR(sn, mss) \
+		wizchip_write16_5500(Sn_MSSR(sn), (uint16_t)(mss))
 
 /**
     @ingroup Socket_register_access_function
@@ -1918,8 +1904,9 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len);
     @param (uint8_t)rxbufsize Value to set @ref Sn_RXBUF_SIZE
     @sa getSn_RXBUF_SIZE()
 */
+int8_t wizchip_set_rx_buf_size(uint8_t sn, uint8_t size_kb);
 #define setSn_RXBUF_SIZE(sn, rxbufsize) \
-		WIZCHIP_WRITE(Sn_RXBUF_SIZE(sn),rxbufsize)
+		wizchip_set_rx_buf_size((sn), (rxbufsize))
 
 
 /**
@@ -1939,8 +1926,9 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len);
     @param (uint8_t)txbufsize Value to set @ref Sn_TXBUF_SIZE
     @sa getSn_TXBUF_SIZE()
 */
+int8_t wizchip_set_tx_buf_size(uint8_t sn, uint8_t size_kb);
 #define setSn_TXBUF_SIZE(sn, txbufsize) \
-		WIZCHIP_WRITE(Sn_TXBUF_SIZE(sn), txbufsize)
+		wizchip_set_tx_buf_size((sn), (txbufsize))
 
 /**
     @ingroup Socket_register_access_function
@@ -1959,6 +1947,8 @@ void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len);
     @return uint16_t. Value of @ref Sn_TX_FSR.
 */
 uint16_t getSn_TX_FSR(uint8_t sn);
+int8_t getSn_TX_FSR_stable(uint8_t sn, uint16_t *fsr_out);
+#define getSn_TX_FSR_checked getSn_TX_FSR_stable
 
 /**
     @ingroup Socket_register_access_function
@@ -2011,6 +2001,8 @@ uint16_t getSn_TX_FSR(uint8_t sn);
     @return uint16_t. Value of @ref Sn_RX_RSR.
 */
 uint16_t getSn_RX_RSR(uint8_t sn);
+int8_t getSn_RX_RSR_stable(uint8_t sn, uint16_t *rsr_out);
+#define getSn_RX_RSR_checked getSn_RX_RSR_stable
 
 
 /**
@@ -2063,10 +2055,8 @@ uint16_t getSn_RX_RSR(uint8_t sn);
     @param (uint16_t)frag Value to set @ref Sn_FRAG
     @sa getSn_FRAD()
 */
-#define setSn_FRAG(sn, frag) { \
-		WIZCHIP_WRITE(Sn_FRAG(sn),  (uint8_t)(frag >>8)); \
-		WIZCHIP_WRITE(WIZCHIP_OFFSET_INC(Sn_FRAG(sn),1), (uint8_t) frag); \
-	}
+#define setSn_FRAG(sn, frag) \
+		wizchip_write16_5500(Sn_FRAG(sn), (uint16_t)(frag))
 
 /**
     @ingroup Socket_register_access_function
@@ -2177,15 +2167,21 @@ void wiz_recv_data(uint8_t sn, uint8_t *wizdata, uint16_t len);
 */
 void wiz_recv_ignore(uint8_t sn, uint16_t len);
 
-/** @brief Read two bytes at addr in one VDM burst.
-    Replaces the two-scalar-frame 16-bit register read pattern
-    with a single sequential VDM transfer for efficiency and atomicity. */
-uint16_t wizchip_read16_5500(uint32_t addr);
+/** @brief Read two bytes at addr with checked VDM byte transactions. */
+uint8_t wizchip_read16_5500(uint32_t addr, uint16_t *out);
+
+/** @brief Compatibility value-returning wrapper for existing register macros. */
+uint16_t wizchip_read16_5500_value(uint32_t addr);
+#define WIZCHIP_READ16_5500_SELECT(_1, _2, NAME, ...) NAME
+#define wizchip_read16_5500(...) \
+    WIZCHIP_READ16_5500_SELECT(__VA_ARGS__, \
+                               wizchip_read16_5500, \
+                               wizchip_read16_5500_value)(__VA_ARGS__)
 
 /** @brief Write two bytes to addr in one VDM burst.
     Replaces the two-scalar-frame 16-bit register write pattern
     with a single sequential VDM transfer. */
-void wizchip_write16_5500(uint32_t addr, uint16_t val);
+int8_t wizchip_write16_5500(uint32_t addr, uint16_t value);
 
 /// @cond DOXY_APPLY_CODE
 #endif

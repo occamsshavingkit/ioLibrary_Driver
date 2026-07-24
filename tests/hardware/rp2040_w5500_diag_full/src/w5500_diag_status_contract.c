@@ -2,9 +2,18 @@
 
 #include <stddef.h>
 
-static uint8_t status_ok(void)
+static uint8_t status_not_busy(void)
 {
     return 0u;
+}
+
+static int8_t status_no_error(void)
+{
+    return 0;
+}
+
+static void status_clear(void)
+{
 }
 
 w5500_diag_board_status_t w5500_diag_status_contract_classify(
@@ -16,6 +25,9 @@ w5500_diag_board_status_t w5500_diag_status_contract_classify(
         WIZCHIP.IF.SPI._read_burst;
     void (*saved_write_burst)(uint8_t *, uint16_t) =
         WIZCHIP.IF.SPI._write_burst;
+    uint8_t (*saved_check_busy)(void) = WIZCHIP.SPISTATUS._check_busy;
+    int8_t (*saved_get_error)(void) = WIZCHIP.SPISTATUS._get_error;
+    void (*saved_clear_error)(void) = WIZCHIP.SPISTATUS._clear_error;
     bool transport_changed;
     bool status_installed;
 
@@ -24,13 +36,19 @@ w5500_diag_board_status_t w5500_diag_status_contract_classify(
                         : W5500_DIAG_STATUS_NOT_CLAIMED;
     }
 
-    registrar(status_ok, status_ok);
+    registrar(status_not_busy, status_no_error, status_clear);
     transport_changed = WIZCHIP.IF.SPI._read_byte != saved_read_byte ||
                         WIZCHIP.IF.SPI._write_byte != saved_write_byte ||
                         WIZCHIP.IF.SPI._read_burst != saved_read_burst ||
                         WIZCHIP.IF.SPI._write_burst != saved_write_burst;
-    status_installed = WIZCHIP.IF.SPI_STATUS._check_busy == status_ok &&
-                       WIZCHIP.IF.SPI_STATUS._get_error == status_ok;
+    status_installed =
+        WIZCHIP.SPISTATUS._check_busy == status_not_busy &&
+        WIZCHIP.SPISTATUS._get_error == status_no_error &&
+        WIZCHIP.SPISTATUS._clear_error == status_clear;
+
+    WIZCHIP.SPISTATUS._check_busy = saved_check_busy;
+    WIZCHIP.SPISTATUS._get_error = saved_get_error;
+    WIZCHIP.SPISTATUS._clear_error = saved_clear_error;
 
     if (transport_changed) {
         WIZCHIP.IF.SPI._read_byte = saved_read_byte;

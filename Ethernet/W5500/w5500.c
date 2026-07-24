@@ -54,6 +54,16 @@
 //#include <stdio.h>
 #include "w5500.h"
 
+#ifndef SOCK_OK
+#define SOCK_OK (1)
+#endif
+#ifndef SOCKERR_IO
+#define SOCKERR_IO (-3)
+#endif
+#ifndef SOCKERR_DEADLINE
+#define SOCKERR_DEADLINE (-16)
+#endif
+
 #define _W5500_SPI_VDM_OP_          0x00
 #define _W5500_SPI_FDM_OP_LEN1_     0x01
 #define _W5500_SPI_FDM_OP_LEN2_     0x02
@@ -71,147 +81,145 @@
 ////////////////////////////////////////////////////
 
 WIZCHIP_SPI_OPTIMIZE uint8_t  WIZCHIP_READ(uint32_t AddrSel) {
-    uint8_t ret;
-    uint8_t spi_data[3];
-
-    WIZCHIP_CRITICAL_ENTER();
-    WIZCHIP.CS._select();
-
-    AddrSel |= (_W5500_SPI_READ_ | _W5500_SPI_VDM_OP_);
-
-    if (!WIZCHIP.IF.SPI._read_burst || !WIZCHIP.IF.SPI._write_burst) {	// byte operation
-        WIZCHIP.IF.SPI._write_byte((AddrSel & 0x00FF0000) >> 16);
-        WIZCHIP.IF.SPI._write_byte((AddrSel & 0x0000FF00) >>  8);
-        WIZCHIP.IF.SPI._write_byte((AddrSel & 0x000000FF) >>  0);
-    } else {															// burst operation
-        spi_data[0] = (AddrSel & 0x00FF0000) >> 16;
-        spi_data[1] = (AddrSel & 0x0000FF00) >> 8;
-        spi_data[2] = (AddrSel & 0x000000FF) >> 0;
-        WIZCHIP.IF.SPI._write_burst(spi_data, 3);
-    }
-    ret = WIZCHIP.IF.SPI._read_byte();
-
-
-    WIZCHIP.CS._deselect();
-    WIZCHIP_CRITICAL_EXIT();
-    return ret;
+    return wizchip_read8_checked(AddrSel);
 }
 
 WIZCHIP_SPI_OPTIMIZE void     WIZCHIP_WRITE(uint32_t AddrSel, uint8_t wb) {
-    uint8_t spi_data[4];
-
-    WIZCHIP_CRITICAL_ENTER();
-    WIZCHIP.CS._select();
-
-    AddrSel |= (_W5500_SPI_WRITE_ | _W5500_SPI_VDM_OP_);
-
-    //if(!WIZCHIP.IF.SPI._read_burst || !WIZCHIP.IF.SPI._write_burst) 	// byte operation
-    if (!WIZCHIP.IF.SPI._write_burst) {	// byte operation
-        WIZCHIP.IF.SPI._write_byte((AddrSel & 0x00FF0000) >> 16);
-        WIZCHIP.IF.SPI._write_byte((AddrSel & 0x0000FF00) >>  8);
-        WIZCHIP.IF.SPI._write_byte((AddrSel & 0x000000FF) >>  0);
-        WIZCHIP.IF.SPI._write_byte(wb);
-    } else {								// burst operation
-        spi_data[0] = (AddrSel & 0x00FF0000) >> 16;
-        spi_data[1] = (AddrSel & 0x0000FF00) >> 8;
-        spi_data[2] = (AddrSel & 0x000000FF) >> 0;
-        spi_data[3] = wb;
-        WIZCHIP.IF.SPI._write_burst(spi_data, 4);
-    }
-
-
-    WIZCHIP.CS._deselect();
-    WIZCHIP_CRITICAL_EXIT();
+    (void)wizchip_write8_checked(AddrSel, wb);
 }
 
 WIZCHIP_SPI_OPTIMIZE void     WIZCHIP_READ_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len) {
-    uint8_t spi_data[3];
-    uint16_t i;
-
-    WIZCHIP_CRITICAL_ENTER();
-    WIZCHIP.CS._select();
-
-    AddrSel |= (_W5500_SPI_READ_ | _W5500_SPI_VDM_OP_);
-
-    if (!WIZCHIP.IF.SPI._read_burst || !WIZCHIP.IF.SPI._write_burst) {	// byte operation
-        WIZCHIP.IF.SPI._write_byte((AddrSel & 0x00FF0000) >> 16);
-        WIZCHIP.IF.SPI._write_byte((AddrSel & 0x0000FF00) >>  8);
-        WIZCHIP.IF.SPI._write_byte((AddrSel & 0x000000FF) >>  0);
-        for (i = 0; i < len; i++) {
-            pBuf[i] = WIZCHIP.IF.SPI._read_byte();
-        }
-    } else {															// burst operation
-        spi_data[0] = (AddrSel & 0x00FF0000) >> 16;
-        spi_data[1] = (AddrSel & 0x0000FF00) >> 8;
-        spi_data[2] = (AddrSel & 0x000000FF) >> 0;
-        WIZCHIP.IF.SPI._write_burst(spi_data, 3);
-        WIZCHIP.IF.SPI._read_burst(pBuf, len);
-    }
-
-
-    WIZCHIP.CS._deselect();
-    WIZCHIP_CRITICAL_EXIT();
+    (void)wizchip_read_buf_checked(AddrSel, pBuf, len);
 }
 
 WIZCHIP_SPI_OPTIMIZE void     WIZCHIP_WRITE_BUF(uint32_t AddrSel, uint8_t* pBuf, uint16_t len) {
-    uint8_t spi_data[3];
-    uint16_t i;
+    (void)wizchip_write_buf_checked(AddrSel, pBuf, len);
+}
 
-    WIZCHIP_CRITICAL_ENTER();
-    WIZCHIP.CS._select();
+static int8_t wizchip_set_buf_size(uint8_t sn, uint8_t size_kb,
+                                   uint32_t addr, uint16_t *cache) {
+    uint8_t readback = 0;
+    int8_t result;
 
-    AddrSel |= (_W5500_SPI_WRITE_ | _W5500_SPI_VDM_OP_);
-
-    if (!WIZCHIP.IF.SPI._write_burst) {	// byte operation
-        WIZCHIP.IF.SPI._write_byte((AddrSel & 0x00FF0000) >> 16);
-        WIZCHIP.IF.SPI._write_byte((AddrSel & 0x0000FF00) >>  8);
-        WIZCHIP.IF.SPI._write_byte((AddrSel & 0x000000FF) >>  0);
-        for (i = 0; i < len; i++) {
-            WIZCHIP.IF.SPI._write_byte(pBuf[i]);
-        }
-    } else {								// burst operation
-        spi_data[0] = (AddrSel & 0x00FF0000) >> 16;
-        spi_data[1] = (AddrSel & 0x0000FF00) >> 8;
-        spi_data[2] = (AddrSel & 0x000000FF) >> 0;
-        WIZCHIP.IF.SPI._write_burst(spi_data, 3);
-        WIZCHIP.IF.SPI._write_burst(pBuf, len);
+    if (sn >= _WIZCHIP_SOCK_NUM_ ||
+        (size_kb != 0u && size_kb != 2u && size_kb != 4u &&
+         size_kb != 8u && size_kb != 16u)) {
+        return -1;
     }
 
+    WIZCHIP_GLOBAL_LOCK();
+    result = wizchip_write8_checked(addr, size_kb);
+    if (result == 0) {
+        result = wizchip_read8_checked_out(addr, &readback);
+    }
+    if (result == 0 && readback != size_kb) {
+        result = -1;
+    }
+    if (result == 0) {
+        cache[sn] = (uint16_t)size_kb * 1024u;
+    }
+    WIZCHIP_GLOBAL_UNLOCK();
 
-    WIZCHIP.CS._deselect();
-    WIZCHIP_CRITICAL_EXIT();
+    return result;
 }
 
+int8_t wizchip_set_tx_buf_size(uint8_t sn, uint8_t size_kb) {
+    return wizchip_set_buf_size(sn, size_kb, Sn_TXBUF_SIZE(sn),
+                                wizchip_txmax_cache);
+}
+
+int8_t wizchip_set_rx_buf_size(uint8_t sn, uint8_t size_kb) {
+    return wizchip_set_buf_size(sn, size_kb, Sn_RXBUF_SIZE(sn),
+                                wizchip_rxmax_cache);
+}
+
+
+int8_t getSn_TX_FSR_stable(uint8_t sn, uint16_t *fsr_out) {
+    uint16_t first;
+    uint16_t second;
+    uint16_t third;
+    uint64_t deadline;
+
+    if (!fsr_out) {
+        return SOCKERR_IO;
+    }
+
+    deadline = wizchip_deadline_abs(_WIZCHIP_POLL_MAX_);
+    if (deadline == 0u) {
+        deadline = _WIZCHIP_POLL_MAX_;
+    }
+
+    for (;;) {
+        if (wizchip_read16_5500(Sn_TX_FSR(sn), &first) != 0u ||
+            wizchip_read16_5500(Sn_TX_FSR(sn), &second) != 0u) {
+            return SOCKERR_IO;
+        }
+        if (first == second) {
+            *fsr_out = second;
+            return SOCK_OK;
+        }
+        if (wizchip_read16_5500(Sn_TX_FSR(sn), &third) != 0u) {
+            return SOCKERR_IO;
+        }
+        if (second == third) {
+            *fsr_out = third;
+            return SOCK_OK;
+        }
+        if (wizchip_deadline_expired(deadline)) {
+            return SOCKERR_DEADLINE;
+        }
+    }
+}
 
 uint16_t getSn_TX_FSR(uint8_t sn) {
-    uint16_t val = 0, val1 = 0;
-    uint32_t _poll = 0;
+    uint16_t value = 0;
 
-    do {
-        val1 = WIZCHIP_READ(Sn_TX_FSR(sn));
-        val1 = (val1 << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_TX_FSR(sn), 1));
-        if (val1 != 0) {
-            val = WIZCHIP_READ(Sn_TX_FSR(sn));
-            val = (val << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_TX_FSR(sn), 1));
-        }
-    } while (val != val1 && ++_poll < _WIZCHIP_POLL_MAX_);
-    return val;
+    (void)getSn_TX_FSR_stable(sn, &value);
+    return value;
 }
 
+int8_t getSn_RX_RSR_stable(uint8_t sn, uint16_t *rsr_out) {
+    uint16_t first;
+    uint16_t second;
+    uint16_t third;
+    uint64_t deadline;
+
+    if (!rsr_out) {
+        return SOCKERR_IO;
+    }
+
+    deadline = wizchip_deadline_abs(_WIZCHIP_POLL_MAX_);
+    if (deadline == 0u) {
+        deadline = _WIZCHIP_POLL_MAX_;
+    }
+
+    for (;;) {
+        if (wizchip_read16_5500(Sn_RX_RSR(sn), &first) != 0u ||
+            wizchip_read16_5500(Sn_RX_RSR(sn), &second) != 0u) {
+            return SOCKERR_IO;
+        }
+        if (first == second) {
+            *rsr_out = second;
+            return SOCK_OK;
+        }
+        if (wizchip_read16_5500(Sn_RX_RSR(sn), &third) != 0u) {
+            return SOCKERR_IO;
+        }
+        if (second == third) {
+            *rsr_out = third;
+            return SOCK_OK;
+        }
+        if (wizchip_deadline_expired(deadline)) {
+            return SOCKERR_DEADLINE;
+        }
+    }
+}
 
 uint16_t getSn_RX_RSR(uint8_t sn) {
-    uint16_t val = 0, val1 = 0;
-    uint32_t _poll = 0;
+    uint16_t value = 0;
 
-    do {
-        val1 = WIZCHIP_READ(Sn_RX_RSR(sn));
-        val1 = (val1 << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_RX_RSR(sn), 1));
-        if (val1 != 0) {
-            val = WIZCHIP_READ(Sn_RX_RSR(sn));
-            val = (val << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_RX_RSR(sn), 1));
-        }
-    } while (val != val1 && ++_poll < _WIZCHIP_POLL_MAX_);
-    return val;
+    (void)getSn_RX_RSR_stable(sn, &value);
+    return value;
 }
 
 void wiz_send_data(uint8_t sn, uint8_t *wizdata, uint16_t len) {
@@ -262,23 +270,35 @@ void wiz_recv_ignore(uint8_t sn, uint16_t len) {
     setSn_RX_RD(sn, ptr);
 }
 
-/*
- * Sequential VDM 16-bit helpers
- *
- * Replace two scalar SPI frames with one VDM burst for
- * efficiency and atomicity. See also AUD-040, AUD-041.
- */
-uint16_t wizchip_read16_5500(uint32_t addr) {
-    uint8_t tmp[2];
-    WIZCHIP_READ_BUF(addr, tmp, 2);
-    return ((uint16_t)tmp[0] << 8) | tmp[1];
+uint8_t (wizchip_read16_5500)(uint32_t addr, uint16_t *out) {
+    uint8_t high;
+    uint8_t low;
+
+    if (!out) {
+        return (uint8_t)-1;
+    }
+    if (wizchip_read8_checked_out(addr, &high) != 0) {
+        return (uint8_t)-1;
+    }
+    if (wizchip_read8_checked_out(WIZCHIP_OFFSET_INC(addr, 1), &low) != 0) {
+        return (uint8_t)-1;
+    }
+    *out = ((uint16_t)high << 8) | low;
+    return 0;
 }
 
-void wizchip_write16_5500(uint32_t addr, uint16_t val) {
+uint16_t wizchip_read16_5500_value(uint32_t addr) {
+    uint16_t value = 0;
+
+    (void)wizchip_read16_5500(addr, &value);
+    return value;
+}
+
+int8_t wizchip_write16_5500(uint32_t addr, uint16_t value) {
     uint8_t tmp[2];
-    tmp[0] = (uint8_t)(val >> 8);
-    tmp[1] = (uint8_t)val;
-    WIZCHIP_WRITE_BUF(addr, tmp, 2);
+    tmp[0] = (uint8_t)(value >> 8);
+    tmp[1] = (uint8_t)value;
+    return wizchip_write_buf_checked(addr, tmp, 2);
 }
 
 #endif

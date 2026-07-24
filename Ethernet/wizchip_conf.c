@@ -54,6 +54,39 @@
 
 #include "wizchip_conf.h"
 
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#endif
+#include "socket.h"
+
+#undef reg_wizchip_time_cbfunc
+#undef wizchip_read8_checked
+
+void wizchip_cris_enter(void);
+void wizchip_cris_exit(void);
+void wizchip_cs_select(void);
+void wizchip_cs_deselect(void);
+iodata_t wizchip_bus_readdata(uint32_t AddrSel);
+void wizchip_bus_writedata(uint32_t AddrSel, iodata_t wb);
+void wizchip_bus_read_buf(uint32_t AddrSel, iodata_t* buf, int16_t len,
+                          uint8_t addrinc);
+void wizchip_bus_write_buf(uint32_t AddrSel, iodata_t* buf, int16_t len,
+                           uint8_t addrinc);
+uint8_t wizchip_spi_readbyte(void);
+void wizchip_spi_writebyte(uint8_t wb);
+void wizchip_spi_readburst(uint8_t* pBuf, uint16_t len);
+void wizchip_spi_writeburst(uint8_t* pBuf, uint16_t len);
+void wizchip_qspi_read(uint8_t opcode, uint16_t addr, uint8_t* pBuf,
+                       uint16_t len);
+void wizchip_qspi_write(uint8_t opcode, uint16_t addr, uint8_t* pBuf,
+                        uint16_t len);
+void reg_wizchip_busbuf_cbfunc(
+    void (*busbuf_rb)(uint32_t AddrSel, iodata_t* pBuf, int16_t len,
+                      uint8_t addrinc),
+    void (*busbuf_wb)(uint32_t AddrSel, iodata_t* pBuf, int16_t len,
+                      uint8_t addrinc));
+
 /////////////
 //M20150401 : Remove ; in the default callback function such as wizchip_cris_enter(), wizchip_cs_select() and etc.
 /////////////
@@ -75,15 +108,19 @@ static void wizchip_sock_lock_default(uint8_t sn)     { (void)sn; }
 static void wizchip_sock_unlock_default(uint8_t sn)   { (void)sn; }
 static void wizchip_global_lock_default(void)          {}
 static void wizchip_global_unlock_default(void)        {}
+static uint8_t wizchip_spi_busy_default(void)           { return 0; }
+static int8_t wizchip_spi_error_default(void)            { return 0; }
+static void wizchip_spi_clear_default(void)              {}
 static void wizchip_wdt_kick_default(void)              {}
 static void wizchip_phy_callback_default(uint8_t lu)   { (void)lu; }
 
 static void (*wizchip_wdt_kick_cb)(void)       = wizchip_wdt_kick_default;
 static void (*wizchip_phy_link_cb)(uint8_t)    = wizchip_phy_callback_default;
+static int8_t wizchip_previous_link = -1;
 
 void __attribute__((weak)) wizchip_wdt_kick(void)                      { if (wizchip_wdt_kick_cb) wizchip_wdt_kick_cb(); }
 void __attribute__((weak)) reg_wizchip_wdt_cbfunc(void (*kick)(void))  { wizchip_wdt_kick_cb = kick; }
-void __attribute__((weak)) wizchip_phy_link_callback(void)             { if (wizchip_phy_link_cb) wizchip_phy_link_cb(0); }
+void __attribute__((weak)) wizchip_phy_link_callback(uint8_t link_up)  { if (wizchip_phy_link_cb) wizchip_phy_link_cb(link_up); }
 void __attribute__((weak)) reg_wizchip_phy_cbfunc(void (*cb)(uint8_t)) { wizchip_phy_link_cb = cb; }
 
 /**
@@ -307,6 +344,11 @@ _WIZCHIP  WIZCHIP = {
 #endif
     ,
     {
+        ._check_busy = wizchip_spi_busy_default,
+        ._check_error = wizchip_spi_error_default,
+        ._clear = wizchip_spi_clear_default
+    },
+    {
         wizchip_sock_lock_default,
         wizchip_sock_unlock_default,
         wizchip_global_lock_default,
@@ -324,10 +366,334 @@ static uint8_t      _DNS6_[16];    ///< DSN server IPv6 address
 static ipconf_mode  _IPMODE_;      ///< IP configuration mode
 #endif
 
-/* Cached socket buffer sizes to avoid per-operation SPI reads.
-   Populated by wizchip_init; updated by setSn_[TR]XBUF_SIZE. */
+/* Cached socket buffer sizes to avoid per-operation SPI reads. */
 uint16_t wizchip_txmax_cache[_WIZCHIP_SOCK_NUM_];
 uint16_t wizchip_rxmax_cache[_WIZCHIP_SOCK_NUM_];
+
+static wizchip_state_t chip_state = WIZCHIP_STATE_UNINIT;
+static int8_t chip_last_error;
+static wizchip_time_cbs_t time_cbs;
+static wizchip_wait_hook_fn wait_hook;
+static uint32_t configured_timeout_us;
+static uint32_t poll_counter;
+static wizchip_timeout_config_t timeout_config = {
+    10000u,
+    WIZCHIP_OPERATION_TIMEOUT_DEFAULT_US,
+    10000u
+};
+static uint32_t requested_operation_timeout_us =
+    WIZCHIP_OPERATION_TIMEOUT_DEFAULT_US;
+
+static void wizchip_update_timeout_floor_locked(uint16_t rtr,
+                                                uint8_t rcr) {
+    uint64_t retry_window_us =
+        (uint64_t)rtr * 100u * ((uint64_t)rcr + 1u) +
+        WIZCHIP_RETRY_MARGIN_US;
+
+    if (retry_window_us > UINT32_MAX) {
+        retry_window_us = UINT32_MAX;
+    }
+    timeout_config.operation_timeout_us = requested_operation_timeout_us;
+    if (timeout_config.operation_timeout_us < retry_window_us) {
+        timeout_config.operation_timeout_us = (uint32_t)retry_window_us;
+    }
+    configured_timeout_us = timeout_config.operation_timeout_us;
+}
+
+static void wizchip_setinterruptmask_locked(intr_kind intr);
+static intr_kind wizchip_getinterruptmask_locked(void);
+
+void reg_wizchip_time_cbfunc(wizchip_time_fn now_fn, wizchip_wait_fn wait_fn) {
+    time_cbs._now_us = now_fn;
+    time_cbs._wait_us = wait_fn;
+    wait_hook = 0;
+}
+
+void reg_wizchip_time_hook_cbfunc(wizchip_time_fn now_fn,
+                                  wizchip_wait_hook_fn wait_fn) {
+    time_cbs._now_us = now_fn;
+    time_cbs._wait_us = 0;
+    wait_hook = wait_fn;
+}
+
+uint8_t wizchip_timeout_config_set(uint32_t timeout_us) {
+    if (timeout_us == 0u) {
+        return 1u;
+    }
+    configured_timeout_us = timeout_us;
+    return 0u;
+}
+
+uint64_t wizchip_deadline_abs(uint64_t timeout_us) {
+    if (time_cbs._now_us) {
+        return time_cbs._now_us() + timeout_us;
+    }
+    poll_counter = 0u;
+    configured_timeout_us = timeout_us > UINT32_MAX
+                            ? UINT32_MAX
+                            : (uint32_t)timeout_us;
+    return 0u;
+}
+
+int8_t wizchip_deadline_expired(uint64_t deadline_us) {
+    if (time_cbs._now_us) {
+        return time_cbs._now_us() >= deadline_us;
+    }
+    ++poll_counter;
+    return poll_counter >= deadline_us;
+}
+
+uint64_t wizchip_time_now(void) {
+    if (time_cbs._now_us) {
+        return time_cbs._now_us();
+    }
+    return poll_counter;
+}
+
+int8_t wizchip_set_timeout_config(const wizchip_timeout_config_t *config) {
+    uint16_t rtr;
+    uint8_t rcr;
+
+    if (!config || config->command_timeout_us == 0u ||
+        config->operation_timeout_us == 0u || config->phy_timeout_us == 0u) {
+        return -1;
+    }
+
+    WIZCHIP_GLOBAL_LOCK();
+    rtr = getRTR();
+    rcr = getRCR();
+    timeout_config = *config;
+    requested_operation_timeout_us = config->operation_timeout_us;
+    wizchip_update_timeout_floor_locked(rtr, rcr);
+    WIZCHIP_GLOBAL_UNLOCK();
+    return 0;
+}
+
+int8_t wizchip_get_timeout_config(wizchip_timeout_config_t *config) {
+    if (!config) {
+        return -1;
+    }
+    *config = timeout_config;
+    return 0;
+}
+
+void wizchip_deadline_start(wizchip_deadline_t *deadline,
+                            uint64_t timeout_us) {
+    if (!deadline) {
+        return;
+    }
+    deadline->started_us = wizchip_time_now();
+    deadline->deadline_us = wizchip_deadline_abs(timeout_us);
+    deadline->timeout_us = timeout_us;
+    deadline->polls = 0u;
+}
+
+int8_t wizchip_deadline_poll(wizchip_deadline_t *deadline) {
+    if (!deadline) {
+        return -16;
+    }
+
+    if (time_cbs._wait_us) {
+        time_cbs._wait_us(1u);
+    } else if (wait_hook) {
+        wait_hook();
+    }
+
+    ++deadline->polls;
+    if (deadline->polls >= _WIZCHIP_POLL_MAX_) {
+        return -16;
+    }
+    if (time_cbs._now_us &&
+        (wizchip_time_now() - deadline->started_us) >= deadline->timeout_us) {
+        return -16;
+    }
+    return 1;
+}
+
+wizchip_state_t wizchip_get_state(void) {
+    return chip_state;
+}
+
+void wizchip_mark_faulted(void) {
+    chip_state = WIZCHIP_STATE_FAULTED;
+}
+
+int8_t wizchip_get_last_error(void) {
+    return chip_last_error;
+}
+
+void wizchip_set_last_error(int8_t error) {
+    chip_last_error = error;
+}
+
+void wizchip_clear_last_error(void) {
+    chip_last_error = 0;
+}
+
+int8_t wizchip_recover(void) {
+    if (chip_state == WIZCHIP_STATE_READY) {
+        wizchip_clear_spi_error();
+        chip_last_error = 0;
+        return 0;
+    }
+    if (chip_state != WIZCHIP_STATE_FAULTED) {
+        return -1;
+    }
+    wizchip_clear_spi_error();
+    chip_last_error = 0;
+    chip_state = WIZCHIP_STATE_READY;
+    return 0;
+}
+
+uint8_t wizchip_get_spi_error(void) {
+    if (WIZCHIP.SPISTATUS._check_error) {
+        return WIZCHIP.SPISTATUS._check_error();
+    }
+    return 0u;
+}
+
+void wizchip_clear_spi_error(void) {
+    if (WIZCHIP.SPISTATUS._clear) {
+        WIZCHIP.SPISTATUS._clear();
+    }
+}
+
+static int8_t wizchip_spi_fault(void) {
+    chip_state = WIZCHIP_STATE_FAULTED;
+    chip_last_error = SOCKERR_IO;
+    return SOCKERR_IO;
+}
+
+static void wizchip_spi_write_header(uint32_t addr, uint8_t control) {
+    uint8_t header[3];
+
+    addr |= control;
+    header[0] = (uint8_t)(addr >> 16);
+    header[1] = (uint8_t)(addr >> 8);
+    header[2] = (uint8_t)addr;
+    if (WIZCHIP.IF.SPI._write_burst) {
+        WIZCHIP.IF.SPI._write_burst(header, sizeof(header));
+    } else {
+        WIZCHIP.IF.SPI._write_byte(header[0]);
+        WIZCHIP.IF.SPI._write_byte(header[1]);
+        WIZCHIP.IF.SPI._write_byte(header[2]);
+    }
+}
+
+int8_t wizchip_read8_checked_out(uint32_t addr, uint8_t *out) {
+    if (!out) {
+        return SOCKERR_ARG;
+    }
+    WIZCHIP.CRIS._enter();
+    wizchip_clear_spi_error();
+    WIZCHIP.CS._select();
+    wizchip_spi_write_header(addr, _W5500_SPI_READ_);
+    *out = WIZCHIP.IF.SPI._read_byte();
+    WIZCHIP.CS._deselect();
+    if (WIZCHIP_SPI_BUSY_CHECK() || WIZCHIP_SPI_ERROR_CHECK()) {
+        WIZCHIP.CRIS._exit();
+        return wizchip_spi_fault();
+    }
+    WIZCHIP.CRIS._exit();
+    return 0;
+}
+
+uint8_t wizchip_read8_checked(uint32_t addr) {
+    uint8_t value = 0xFF;
+
+    (void)wizchip_read8_checked_out(addr, &value);
+    return value;
+}
+
+int8_t wizchip_write8_checked(uint32_t addr, uint8_t data) {
+    uint8_t frame[4];
+
+    addr |= _W5500_SPI_WRITE_;
+    frame[0] = (uint8_t)(addr >> 16);
+    frame[1] = (uint8_t)(addr >> 8);
+    frame[2] = (uint8_t)addr;
+    frame[3] = data;
+
+    WIZCHIP.CRIS._enter();
+    wizchip_clear_spi_error();
+    WIZCHIP.CS._select();
+    if (WIZCHIP.IF.SPI._write_burst) {
+        WIZCHIP.IF.SPI._write_burst(frame, sizeof(frame));
+    } else {
+        WIZCHIP.IF.SPI._write_byte(frame[0]);
+        WIZCHIP.IF.SPI._write_byte(frame[1]);
+        WIZCHIP.IF.SPI._write_byte(frame[2]);
+        WIZCHIP.IF.SPI._write_byte(frame[3]);
+    }
+    WIZCHIP.CS._deselect();
+    if (WIZCHIP_SPI_BUSY_CHECK() || WIZCHIP_SPI_ERROR_CHECK()) {
+        WIZCHIP.CRIS._exit();
+        return wizchip_spi_fault();
+    }
+    WIZCHIP.CRIS._exit();
+    return 0;
+}
+
+int8_t wizchip_read_buf_checked(uint32_t addr, uint8_t *buf, uint16_t len) {
+    uint16_t i;
+
+    if (len == 0u) {
+        return 0;
+    }
+    if (!buf) {
+        return SOCKERR_ARG;
+    }
+
+    WIZCHIP.CRIS._enter();
+    wizchip_clear_spi_error();
+    WIZCHIP.CS._select();
+    wizchip_spi_write_header(addr, _W5500_SPI_READ_);
+    if (WIZCHIP.IF.SPI._read_burst) {
+        WIZCHIP.IF.SPI._read_burst(buf, len);
+    } else {
+        for (i = 0; i < len; ++i) {
+            buf[i] = WIZCHIP.IF.SPI._read_byte();
+        }
+    }
+    WIZCHIP.CS._deselect();
+    if (WIZCHIP_SPI_BUSY_CHECK() || WIZCHIP_SPI_ERROR_CHECK()) {
+        WIZCHIP.CRIS._exit();
+        return wizchip_spi_fault();
+    }
+    WIZCHIP.CRIS._exit();
+    return 0;
+}
+
+int8_t wizchip_write_buf_checked(uint32_t addr, const uint8_t *buf,
+                                 uint16_t len) {
+    uint16_t i;
+
+    if (len == 0u) {
+        return 0;
+    }
+    if (!buf) {
+        return SOCKERR_ARG;
+    }
+
+    WIZCHIP.CRIS._enter();
+    wizchip_clear_spi_error();
+    WIZCHIP.CS._select();
+    wizchip_spi_write_header(addr, _W5500_SPI_WRITE_);
+    if (WIZCHIP.IF.SPI._write_burst) {
+        WIZCHIP.IF.SPI._write_burst((uint8_t *)buf, len);
+    } else {
+        for (i = 0; i < len; ++i) {
+            WIZCHIP.IF.SPI._write_byte(buf[i]);
+        }
+    }
+    WIZCHIP.CS._deselect();
+    if (WIZCHIP_SPI_BUSY_CHECK() || WIZCHIP_SPI_ERROR_CHECK()) {
+        WIZCHIP.CRIS._exit();
+        return wizchip_spi_fault();
+    }
+    WIZCHIP.CRIS._exit();
+    return 0;
+}
 
 void reg_wizchip_cris_cbfunc(void(*cris_en)(void), void(*cris_ex)(void)) {
     if (!cris_en || !cris_ex) {
@@ -450,13 +816,24 @@ void reg_wizchip_spi_cbfunc(uint8_t (*spi_rb)(void), void (*spi_wb)(uint8_t wb))
 void reg_wizchip_spiburst_cbfunc(void (*spi_rb)(uint8_t* pBuf, uint16_t len), void (*spi_wb)(uint8_t* pBuf, uint16_t len)) {
     while (!(WIZCHIP.if_mode & _WIZCHIP_IO_MODE_SPI_));
 
-    if (!spi_rb || !spi_wb) {
-        WIZCHIP.IF.SPI._read_burst   = wizchip_spi_readburst;
-        WIZCHIP.IF.SPI._write_burst  = wizchip_spi_writeburst;
-    } else {
-        WIZCHIP.IF.SPI._read_burst   = spi_rb;
-        WIZCHIP.IF.SPI._write_burst  = spi_wb;
-    }
+    WIZCHIP.IF.SPI._read_burst = spi_rb;
+    WIZCHIP.IF.SPI._write_burst = spi_wb;
+}
+
+void reg_wizchip_spistatus_cbfunc(
+    uint8_t (*busy_cb)(void),
+    int8_t (*error_cb)(void),
+    void (*clear_cb)(void))
+{
+    uint8_t (*busy)(void) = busy_cb ? busy_cb : wizchip_spi_busy_default;
+    int8_t (*error)(void) = error_cb ? error_cb : wizchip_spi_error_default;
+    void (*clear)(void) = clear_cb ? clear_cb : wizchip_spi_clear_default;
+
+    WIZCHIP.CRIS._enter();
+    WIZCHIP.SPISTATUS._check_busy = busy;
+    WIZCHIP.SPISTATUS._check_error = error;
+    WIZCHIP.SPISTATUS._clear = clear;
+    WIZCHIP.CRIS._exit();
 }
 #if 1 //teddy 240122
 void reg_wizchip_qspi_cbfunc(void (*qspi_rb)(uint8_t opcode, uint16_t addr, uint8_t* pBuf, uint16_t len),
@@ -480,16 +857,39 @@ void reg_wizchip_qspi_cbfunc(void (*qspi_rb)(uint8_t opcode, uint16_t addr, uint
     locks serialize operations on one socket; the global lock protects
     cross-socket shared state.
 */
-void reg_wizchip_lock_cbfunc(
+int8_t reg_wizchip_lock_cbfunc(
     void (*sock_enter)(uint8_t sn),
     void (*sock_exit)(uint8_t sn),
     void (*global_enter)(void),
     void (*global_exit)(void))
 {
-    if (sock_enter)  WIZCHIP.LOCK._sock_enter  = sock_enter;
-    if (sock_exit)   WIZCHIP.LOCK._sock_exit   = sock_exit;
-    if (global_enter) WIZCHIP.LOCK._global_enter = global_enter;
-    if (global_exit)  WIZCHIP.LOCK._global_exit = global_exit;
+    int8_t result = 0;
+
+    if ((sock_enter == NULL) != (sock_exit == NULL)) {
+        WIZCHIP.LOCK._sock_enter = wizchip_sock_lock_default;
+        WIZCHIP.LOCK._sock_exit = wizchip_sock_unlock_default;
+        result = -1;
+    } else if (sock_enter != NULL) {
+        WIZCHIP.LOCK._sock_enter = sock_enter;
+        WIZCHIP.LOCK._sock_exit = sock_exit;
+    } else {
+        WIZCHIP.LOCK._sock_enter = wizchip_sock_lock_default;
+        WIZCHIP.LOCK._sock_exit = wizchip_sock_unlock_default;
+    }
+
+    if ((global_enter == NULL) != (global_exit == NULL)) {
+        WIZCHIP.LOCK._global_enter = wizchip_global_lock_default;
+        WIZCHIP.LOCK._global_exit = wizchip_global_unlock_default;
+        result = -1;
+    } else if (global_enter != NULL) {
+        WIZCHIP.LOCK._global_enter = global_enter;
+        WIZCHIP.LOCK._global_exit = global_exit;
+    } else {
+        WIZCHIP.LOCK._global_enter = wizchip_global_lock_default;
+        WIZCHIP.LOCK._global_exit = wizchip_global_unlock_default;
+    }
+
+    return result;
 }
 
 int8_t ctlwizchip(ctlwizchip_type cwtype, void* arg) {
@@ -545,16 +945,28 @@ int8_t ctlwizchip(ctlwizchip_type cwtype, void* arg) {
         }
         return wizchip_init(ptmp[0], ptmp[1]);
     case CW_CLR_INTERRUPT:
+        if (arg == 0) return -1;
+        WIZCHIP_GLOBAL_LOCK();
         wizchip_clrinterrupt(*((intr_kind*)arg));
+        WIZCHIP_GLOBAL_UNLOCK();
         break;
     case CW_GET_INTERRUPT:
+        if (arg == 0) return -1;
+        WIZCHIP_GLOBAL_LOCK();
         *((intr_kind*)arg) = wizchip_getinterrupt();
+        WIZCHIP_GLOBAL_UNLOCK();
         break;
     case CW_SET_INTRMASK:
-        wizchip_setinterruptmask(*((intr_kind*)arg));
+        if (arg == 0) return -1;
+        WIZCHIP_GLOBAL_LOCK();
+        wizchip_setinterruptmask_locked(*((intr_kind*)arg));
+        WIZCHIP_GLOBAL_UNLOCK();
         break;
     case CW_GET_INTRMASK:
-        *((intr_kind*)arg) = wizchip_getinterruptmask();
+        if (arg == 0) return -1;
+        WIZCHIP_GLOBAL_LOCK();
+        *((intr_kind*)arg) = wizchip_getinterruptmask_locked();
+        WIZCHIP_GLOBAL_UNLOCK();
         break;
         //M20150601 : This can be supported by W5200, W5500
         //#if _WIZCHIP_ > W5100
@@ -594,29 +1006,26 @@ int8_t ctlwizchip(ctlwizchip_type cwtype, void* arg) {
         //teddy 240122
 #if _WIZCHIP_ == W5100S || _WIZCHIP_ == W5500 || _WIZCHIP_ == W6100 || _WIZCHIP_ == W6300
     case CW_RESET_PHY:
-        wizphy_reset();
-        break;
+        return wizphy_reset();
     case CW_SET_PHYCONF:
-        wizphy_setphyconf((wiz_PhyConf*)arg);
-        break;
+        return wizphy_setphyconf((wiz_PhyConf*)arg);
     case CW_GET_PHYCONF:
-        wizphy_getphyconf((wiz_PhyConf*)arg);
-        break;
+        return wizphy_getphyconf((wiz_PhyConf*)arg);
     case CW_GET_PHYSTATUS:
 #if 1
         // 20231012 taylor
 #if _WIZCHIP_ == W5500
-        wizphy_getphystat((wiz_PhyConf*)arg);
+        return wizphy_getphystat((wiz_PhyConf*)arg);
 #endif
 #else
-        wizphy_getphystat((wiz_PhyConf*)arg);
+        return wizphy_getphystat((wiz_PhyConf*)arg);
 #endif
         break;
     case CW_SET_PHYPOWMODE:
+        if (arg == 0) return -1;
         //teddy 240122
 #if _WIZCHIP_ == W6100 ||_WIZCHIP_ == W6300
-        wizphy_setphypmode(*(uint8_t*)arg);
-        break;
+        return wizphy_setphypmode(*(uint8_t*)arg);
 #else
         return wizphy_setphypmode(*(uint8_t*)arg);
 #endif
@@ -651,14 +1060,23 @@ int8_t ctlwizchip(ctlwizchip_type cwtype, void* arg) {
 }
 
 
+static void wizchip_setnetinfo_locked(wiz_NetInfo* pnetinfo);
+static void wizchip_getnetinfo_locked(wiz_NetInfo* pnetinfo);
+static void wizchip_settimeout_locked(wiz_NetTimeout* nettime);
+static void wizchip_gettimeout_locked(wiz_NetTimeout* nettime);
+
 int8_t ctlnetwork(ctlnetwork_type cntype, void* arg) {
 
     switch (cntype) {
     case CN_SET_NETINFO:
-        wizchip_setnetinfo((wiz_NetInfo*)arg);
+        WIZCHIP_GLOBAL_LOCK();
+        wizchip_setnetinfo_locked((wiz_NetInfo*)arg);
+        WIZCHIP_GLOBAL_UNLOCK();
         break;
     case CN_GET_NETINFO:
-        wizchip_getnetinfo((wiz_NetInfo*)arg);
+        WIZCHIP_GLOBAL_LOCK();
+        wizchip_getnetinfo_locked((wiz_NetInfo*)arg);
+        WIZCHIP_GLOBAL_UNLOCK();
         break;
     case CN_SET_NETMODE:
 #if (_WIZCHIP_ == W5100 || _WIZCHIP_ == W5100S || _WIZCHIP_ == W5200 || _WIZCHIP_ == W5300 || _WIZCHIP_ == W5500)
@@ -671,10 +1089,14 @@ int8_t ctlnetwork(ctlnetwork_type cntype, void* arg) {
         *(netmode_type*)arg = wizchip_getnetmode();
         break;
     case CN_SET_TIMEOUT:
-        wizchip_settimeout((wiz_NetTimeout*)arg);
+        WIZCHIP_GLOBAL_LOCK();
+        wizchip_settimeout_locked((wiz_NetTimeout*)arg);
+        WIZCHIP_GLOBAL_UNLOCK();
         break;
     case CN_GET_TIMEOUT:
-        wizchip_gettimeout((wiz_NetTimeout*)arg);
+        WIZCHIP_GLOBAL_LOCK();
+        wizchip_gettimeout_locked((wiz_NetTimeout*)arg);
+        WIZCHIP_GLOBAL_UNLOCK();
         break;
         //teddy 240122
 #if ((_WIZCHIP_ == 6100)||(_WIZCHIP_ == 6300))
@@ -691,17 +1113,104 @@ int8_t ctlnetwork(ctlnetwork_type cntype, void* arg) {
     return 0;
 }
 
-int8_t wizchip_sw_reset(void) {
+static void wizchip_transaction_lock(void) {
+    uint8_t sn;
+
+    WIZCHIP_GLOBAL_LOCK();
+    for (sn = 0; sn < _WIZCHIP_SOCK_NUM_; ++sn) {
+        WIZCHIP_SOCK_LOCK(sn);
+    }
+}
+
+static void wizchip_transaction_unlock(void) {
+    uint8_t sn = _WIZCHIP_SOCK_NUM_;
+
+    while (sn != 0U) {
+        --sn;
+        WIZCHIP_SOCK_UNLOCK(sn);
+    }
+    WIZCHIP_GLOBAL_UNLOCK();
+}
+
+static void wizchip_transaction_reset_socket_state(void) {
+    uint8_t sn;
+
+    for (sn = 0; sn < _WIZCHIP_SOCK_NUM_; ++sn) {
+        wizchip_socket_state_reset_one(sn);
+        wizchip_txmax_cache[sn] = 0U;
+        wizchip_rxmax_cache[sn] = 0U;
+    }
+}
+
+static int8_t wizchip_transaction_finish(int8_t ret) {
+    wizchip_transaction_unlock();
+    if (ret == 0) {
+        chip_state = WIZCHIP_STATE_READY;
+        chip_last_error = 0;
+    } else {
+        chip_state = WIZCHIP_STATE_FAULTED;
+        if (chip_last_error == 0) {
+            chip_last_error = ret;
+        }
+    }
+    return ret;
+}
+
+static int8_t wizchip_refresh_socket_caches(void) {
+    uint8_t sn;
+
+    for (sn = 0; sn < _WIZCHIP_SOCK_NUM_; ++sn) {
+#if _WIZCHIP_ == W5500
+        uint8_t tx_size;
+        uint8_t rx_size;
+
+        if (wizchip_read8_checked_out(Sn_TXBUF_SIZE(sn), &tx_size) != 0 ||
+            wizchip_read8_checked_out(Sn_RXBUF_SIZE(sn), &rx_size) != 0) {
+            return SOCKERR_IO;
+        }
+        wizchip_txmax_cache[sn] = (uint16_t)tx_size * 1024U;
+        wizchip_rxmax_cache[sn] = (uint16_t)rx_size * 1024U;
+#else
+        wizchip_txmax_cache[sn] =
+            (uint16_t)WIZCHIP_READ(Sn_TXBUF_SIZE(sn)) * 1024U;
+        wizchip_rxmax_cache[sn] =
+            (uint16_t)WIZCHIP_READ(Sn_RXBUF_SIZE(sn)) * 1024U;
+        if (chip_state == WIZCHIP_STATE_FAULTED) {
+            return SOCKERR_IO;
+        }
+#endif
+    }
+    return 0;
+}
+
+static int8_t wizchip_sw_reset_locked(void) {
     uint8_t gw[4], sn[4], sip[4];
     uint8_t mac[6];
     int8_t ret = 0;
+
+    wizchip_previous_link = -1;
     //teddy 240122
 #if ((_WIZCHIP_ == 6100) ||(_WIZCHIP_ == 6300))
     uint8_t gw6[16], sn6[16], lla[16], gua[16];
     uint8_t islock = getSYSR();
 #endif
 
-#if (_WIZCHIP_ == W5100 || _WIZCHIP_ == W5100S || _WIZCHIP_ == W5200 || _WIZCHIP_ == W5300 || _WIZCHIP_ == W5500)
+#if _WIZCHIP_ == W5500
+    uint8_t mr;
+
+    if (wizchip_read_buf_checked(SHAR, mac, sizeof(mac)) != 0 ||
+        wizchip_read_buf_checked(GAR, gw, sizeof(gw)) != 0 ||
+        wizchip_read_buf_checked(SUBR, sn, sizeof(sn)) != 0 ||
+        wizchip_read_buf_checked(SIPR, sip, sizeof(sip)) != 0 ||
+        wizchip_write8_checked(MR, MR_RST) != 0 ||
+        wizchip_read8_checked_out(MR, &mr) != 0 ||
+        wizchip_write_buf_checked(SHAR, mac, sizeof(mac)) != 0 ||
+        wizchip_write_buf_checked(GAR, gw, sizeof(gw)) != 0 ||
+        wizchip_write_buf_checked(SUBR, sn, sizeof(sn)) != 0 ||
+        wizchip_write_buf_checked(SIPR, sip, sizeof(sip)) != 0) {
+        return SOCKERR_IO;
+    }
+#elif (_WIZCHIP_ == W5100 || _WIZCHIP_ == W5100S || _WIZCHIP_ == W5200 || _WIZCHIP_ == W5300)
     //A20150601
 #if _WIZCHIP_IO_MODE_  == _WIZCHIP_IO_MODE_BUS_INDIR_
     uint16_t mr = (uint16_t)getMR();
@@ -750,11 +1259,36 @@ int8_t wizchip_sw_reset(void) {
     /* Verify chip identity — VERSIONR must read 0x04 */
     {
         uint32_t _poll = 0;
+#if _WIZCHIP_ == W5500
+        uint8_t version;
+
+        do {
+            if (wizchip_read8_checked_out(VERSIONR, &version) != 0) {
+                return SOCKERR_IO;
+            }
+            ret = (version == 0x04U) ? 0 : -1;
+        } while (ret != 0 && ++_poll < _WIZCHIP_POLL_MAX_);
+#else
         do {
             ret = (getVERSIONR() == 0x04) ? 0 : -1;
         } while (ret != 0 && ++_poll < _WIZCHIP_POLL_MAX_);
+#endif
     }
     return ret;
+}
+
+int8_t wizchip_sw_reset(void) {
+    int8_t ret;
+
+    wizchip_transaction_lock();
+    chip_state = WIZCHIP_STATE_UNINIT;
+    chip_last_error = 0;
+    wizchip_transaction_reset_socket_state();
+    ret = wizchip_sw_reset_locked();
+    if (ret == 0) {
+        ret = wizchip_refresh_socket_caches();
+    }
+    return wizchip_transaction_finish(ret);
 }
 
 int8_t wizchip_init(uint8_t* txsize, uint8_t* rxsize) {
@@ -768,8 +1302,13 @@ int8_t wizchip_init(uint8_t* txsize, uint8_t* rxsize) {
     /* Validate buffer arrays before any hardware access (AUD-013) */
     if (txsize) {
         for (i = 0; i < _WIZCHIP_SOCK_NUM_; i++) {
+#if _WIZCHIP_ == W5500
+            if (txsize[i] != 0 && txsize[i] != 2 && txsize[i] != 4 &&
+                txsize[i] != 8 && txsize[i] != 16) {
+#else
             if (txsize[i] != 0 && txsize[i] != 1 && txsize[i] != 2 &&
                 txsize[i] != 4 && txsize[i] != 8 && txsize[i] != 16) {
+#endif
                 return -1;
             }
             tx_total += txsize[i];
@@ -778,8 +1317,13 @@ int8_t wizchip_init(uint8_t* txsize, uint8_t* rxsize) {
     }
     if (rxsize) {
         for (i = 0; i < _WIZCHIP_SOCK_NUM_; i++) {
+#if _WIZCHIP_ == W5500
+            if (rxsize[i] != 0 && rxsize[i] != 2 && rxsize[i] != 4 &&
+                rxsize[i] != 8 && rxsize[i] != 16) {
+#else
             if (rxsize[i] != 0 && rxsize[i] != 1 && rxsize[i] != 2 &&
                 rxsize[i] != 4 && rxsize[i] != 8 && rxsize[i] != 16) {
+#endif
                 return -1;
             }
             rx_total += rxsize[i];
@@ -787,23 +1331,27 @@ int8_t wizchip_init(uint8_t* txsize, uint8_t* rxsize) {
         }
     }
 
-    tmp = wizchip_sw_reset();
-    if (tmp != 0) return tmp;
+    wizchip_transaction_lock();
+    chip_state = WIZCHIP_STATE_UNINIT;
+    chip_last_error = 0;
+    wizchip_transaction_reset_socket_state();
+    tmp = wizchip_sw_reset_locked();
+    if (tmp != 0) goto wizchip_init_done;
     if (txsize) {
         tmp = 0;
         //M20150601 : For integrating with W5300
 #if _WIZCHIP_ == W5300
         for (i = 0 ; i < _WIZCHIP_SOCK_NUM_; i++) {
             if (txsize[i] > 64) {
-                return -1;    //No use 64KB even if W5300 support max 64KB memory allocation
+                tmp = -1; goto wizchip_init_done;    //No use 64KB even if W5300 support max 64KB memory allocation
             }
             tmp += txsize[i];
             if (tmp > 128) {
-                return -1;
+                tmp = -1; goto wizchip_init_done;
             }
         }
         if (tmp % 8) {
-            return -1;
+            tmp = -1; goto wizchip_init_done;
         }
 #else
         for (i = 0 ; i < _WIZCHIP_SOCK_NUM_; i++) {
@@ -811,15 +1359,15 @@ int8_t wizchip_init(uint8_t* txsize, uint8_t* rxsize) {
 
 #if _WIZCHIP_ < W5200	//2016.10.28 peter add condition for w5100 and w5100s
             if (tmp > 8) {
-                return -1;
+                tmp = -1; goto wizchip_init_done;
             }
 #elif  _WIZCHIP_ == W6300
             if (tmp > 32) {
-                return -1;
+                tmp = -1; goto wizchip_init_done;
             }
 #else
             if (tmp > 16) {
-                return -1;
+                tmp = -1; goto wizchip_init_done;
             }
 #endif
         }
@@ -831,6 +1379,12 @@ int8_t wizchip_init(uint8_t* txsize, uint8_t* rxsize) {
                 j++;
             }
             setSn_TXBUF_SIZE(i, j);
+#elif _WIZCHIP_ == W5500
+            tmp = wizchip_write8_checked(Sn_TXBUF_SIZE(i), txsize[i]);
+            if (tmp != 0) {
+                goto wizchip_init_done;
+            }
+            wizchip_txmax_cache[i] = (uint16_t)txsize[i] * 1024U;
 #else
             setSn_TXBUF_SIZE(i, txsize[i]);
 #endif
@@ -842,30 +1396,30 @@ int8_t wizchip_init(uint8_t* txsize, uint8_t* rxsize) {
 #if _WIZCHIP_ == W5300
         for (i = 0 ; i < _WIZCHIP_SOCK_NUM_; i++) {
             if (rxsize[i] > 64) {
-                return -1;    //No use 64KB even if W5300 support max 64KB memory allocation
+                tmp = -1; goto wizchip_init_done;    //No use 64KB even if W5300 support max 64KB memory allocation
             }
             tmp += rxsize[i];
             if (tmp > 128) {
-                return -1;
+                tmp = -1; goto wizchip_init_done;
             }
         }
         if (tmp % 8) {
-            return -1;
+            tmp = -1; goto wizchip_init_done;
         }
 #else
         for (i = 0 ; i < _WIZCHIP_SOCK_NUM_; i++) {
             tmp += rxsize[i];
 #if _WIZCHIP_ < W5200	//2016.10.28 peter add condition for w5100 and w5100s
             if (tmp > 8) {
-                return -1;
+                tmp = -1; goto wizchip_init_done;
             }
 #elif  _WIZCHIP_ == W6300
             if (tmp > 32) {
-                return -1;
+                tmp = -1; goto wizchip_init_done;
             }
 #else
             if (tmp > 16) {
-                return -1;
+                tmp = -1; goto wizchip_init_done;
             }
 #endif
         }
@@ -877,17 +1431,45 @@ int8_t wizchip_init(uint8_t* txsize, uint8_t* rxsize) {
                 j++;
             }
             setSn_RXBUF_SIZE(i, j);
+#elif _WIZCHIP_ == W5500
+            tmp = wizchip_write8_checked(Sn_RXBUF_SIZE(i), rxsize[i]);
+            if (tmp != 0) {
+                goto wizchip_init_done;
+            }
+            wizchip_rxmax_cache[i] = (uint16_t)rxsize[i] * 1024U;
 #else
             setSn_RXBUF_SIZE(i, rxsize[i]);
 #endif
         }
     }
-    /* Populate cache: read back each socket's buffer size after programming */
-    for (i = 0; i < _WIZCHIP_SOCK_NUM_; i++) {
-        wizchip_txmax_cache[i] = (uint16_t)WIZCHIP_READ(Sn_TXBUF_SIZE(i)) * 1024;
-        wizchip_rxmax_cache[i] = (uint16_t)WIZCHIP_READ(Sn_RXBUF_SIZE(i)) * 1024;
+    tmp = wizchip_refresh_socket_caches();
+    if (tmp != 0) goto wizchip_init_done;
+#if _WIZCHIP_ == W5500
+    for (i = 0; i < _WIZCHIP_SOCK_NUM_; ++i) {
+        if ((txsize && wizchip_txmax_cache[i] !=
+                       (uint16_t)txsize[i] * 1024U) ||
+            (rxsize && wizchip_rxmax_cache[i] !=
+                       (uint16_t)rxsize[i] * 1024U)) {
+            tmp = -1;
+            goto wizchip_init_done;
+        }
     }
-    return 0;
+#endif
+#if _WIZCHIP_ == W5500
+    {
+        uint8_t phycfgr;
+
+        if (wizchip_read8_checked_out(PHYCFGR, &phycfgr) != 0) {
+            tmp = SOCKERR_IO;
+            goto wizchip_init_done;
+        }
+        wizchip_previous_link = (phycfgr & PHYCFGR_LNK_ON)
+                                ? PHY_LINK_ON
+                                : PHY_LINK_OFF;
+    }
+#endif
+wizchip_init_done:
+    return wizchip_transaction_finish(tmp);
 }
 
 /*
@@ -990,7 +1572,7 @@ intr_kind wizchip_getinterrupt(void) {
     return (intr_kind)ret;
 }
 
-void wizchip_setinterruptmask(intr_kind intr) {
+static void wizchip_setinterruptmask_locked(intr_kind intr) {
     uint8_t imr  = (uint8_t)intr;
     uint8_t simr = (uint8_t)((uint16_t)intr >> 8);
 #if _WIZCHIP_ < W5500
@@ -1018,7 +1600,13 @@ void wizchip_setinterruptmask(intr_kind intr) {
 #endif
 }
 
-intr_kind wizchip_getinterruptmask(void) {
+void wizchip_setinterruptmask(intr_kind intr) {
+    WIZCHIP_GLOBAL_LOCK();
+    wizchip_setinterruptmask_locked(intr);
+    WIZCHIP_GLOBAL_UNLOCK();
+}
+
+static intr_kind wizchip_getinterruptmask_locked(void) {
     uint8_t imr  = 0;
     uint8_t simr = 0;
     uint32_t ret = 0;
@@ -1052,6 +1640,15 @@ intr_kind wizchip_getinterruptmask(void) {
     return (intr_kind)ret;
 }
 
+intr_kind wizchip_getinterruptmask(void) {
+    intr_kind intr;
+
+    WIZCHIP_GLOBAL_LOCK();
+    intr = wizchip_getinterruptmask_locked();
+    WIZCHIP_GLOBAL_UNLOCK();
+    return intr;
+}
+
 int8_t wizphy_getphylink(void) {
     int8_t tmp = PHY_LINK_OFF;
 #if _WIZCHIP_ == W5100S
@@ -1082,26 +1679,26 @@ int8_t wizphy_getphylink(void) {
 #else
     tmp = -1;
 #endif
-    {
-        static int8_t last_link = -1;
-        if (tmp != last_link) {
-            last_link = tmp;
-            wizchip_phy_link_callback();
-        }
+    if ((tmp == PHY_LINK_OFF || tmp == PHY_LINK_ON) &&
+        tmp != wizchip_previous_link) {
+        wizchip_previous_link = tmp;
+        wizchip_phy_link_callback((uint8_t)tmp);
     }
     return tmp;
 }
 
 #if _WIZCHIP_ == W5500
 
-void wizphy_powerdown(void) {
+int8_t wizphy_powerdown(void) {
     setPHYCFGR(PHYCFGR_OPMDC_PDOWN);
     setPHYCFGR(PHYCFGR_OPMDC_PDOWN | PHYCFGR_OPMD);
+    return 0;
 }
 
-void wizphy_powerup(void) {
+int8_t wizphy_powerup(void) {
     setPHYCFGR(PHYCFGR_OPMDC_ALLA);
     setPHYCFGR(PHYCFGR_OPMDC_ALLA | PHYCFGR_OPMD);
+    return 0;
 }
 
 void wiznet_wol_enable(uint8_t sn) {
@@ -1115,16 +1712,18 @@ void wiznet_wol_disable(void) {
 
 #elif _WIZCHIP_ == W5100S
 
-void wizphy_powerdown(void) {
+int8_t wizphy_powerdown(void) {
     uint16_t tmp = wiz_mdio_read(PHYMDIO_BMCR);
     tmp |= BMCR_PWDN;
     wiz_mdio_write(PHYMDIO_BMCR, tmp);
+    return 0;
 }
 
-void wizphy_powerup(void) {
+int8_t wizphy_powerup(void) {
     uint16_t tmp = wiz_mdio_read(PHYMDIO_BMCR);
     tmp &= ~BMCR_PWDN;
     wiz_mdio_write(PHYMDIO_BMCR, tmp);
+    return 0;
 }
 
 void wiznet_wol_enable(uint8_t sn) { (void)sn; }
@@ -1168,15 +1767,21 @@ int8_t wizphy_getphypmode(void) {
 #endif
 
 #if _WIZCHIP_ == W5100S
-void wizphy_reset(void) {
+int8_t wizphy_reset(void) {
     uint16_t tmp = wiz_mdio_read(PHYMDIO_BMCR);
     tmp |= BMCR_RESET;
     wiz_mdio_write(PHYMDIO_BMCR, tmp);
     while (wiz_mdio_read(PHYMDIO_BMCR)&BMCR_RESET) {}
+    return 0;
 }
 
-void wizphy_setphyconf(wiz_PhyConf* phyconf) {
-    uint16_t tmp = wiz_mdio_read(PHYMDIO_BMCR);
+int8_t wizphy_setphyconf(wiz_PhyConf* phyconf) {
+    uint16_t tmp;
+
+    if (!phyconf) {
+        return -1;
+    }
+    tmp = wiz_mdio_read(PHYMDIO_BMCR);
     if (phyconf->mode == PHY_MODE_AUTONEGO) {
         tmp |= BMCR_AUTONEGO;
     } else {
@@ -1193,10 +1798,15 @@ void wizphy_setphyconf(wiz_PhyConf* phyconf) {
         }
     }
     wiz_mdio_write(PHYMDIO_BMCR, tmp);
+    return 0;
 }
 
-void wizphy_getphyconf(wiz_PhyConf* phyconf) {
+int8_t wizphy_getphyconf(wiz_PhyConf* phyconf) {
     uint16_t tmp = 0;
+
+    if (!phyconf) {
+        return -1;
+    }
     tmp = wiz_mdio_read(PHYMDIO_BMCR);
     phyconf->by   = PHY_CONFBY_SW;
     if (tmp & BMCR_AUTONEGO) {
@@ -1214,10 +1824,15 @@ void wizphy_getphyconf(wiz_PhyConf* phyconf) {
             phyconf->speed = PHY_SPEED_10;
         }
     }
+    return 0;
 }
 
 int8_t wizphy_setphypmode(uint8_t pmode) {
     uint16_t tmp = 0;
+
+    if (pmode != PHY_POWER_NORM && pmode != PHY_POWER_DOWN) {
+        return -1;
+    }
     tmp = wiz_mdio_read(PHYMDIO_BMCR);
     if (pmode == PHY_POWER_DOWN) {
         tmp |= BMCR_PWDN;
@@ -1239,34 +1854,114 @@ int8_t wizphy_setphypmode(uint8_t pmode) {
 }
 
 #elif _WIZCHIP_ == W5500
-void wizphy_reset(void) {
-    uint8_t tmp = getPHYCFGR();
-    uint32_t _settle;
-    tmp &= PHYCFGR_RST;
-    setPHYCFGR(tmp);
-    tmp = getPHYCFGR();
-    /* Minimum settle delay (~200 µs calibrated for common MCU speeds;
-       integrators must adjust _WIZCHIP_PHY_SETTLE_ for their clock rate) */
-#ifndef _WIZCHIP_PHY_SETTLE_
-#define _WIZCHIP_PHY_SETTLE_ 10000
-#endif
-    _settle = _WIZCHIP_PHY_SETTLE_;
-    while (_settle--);
-    tmp |= ~PHYCFGR_RST;
-    setPHYCFGR(tmp);
-    /* Poll until PHY register file stabilizes */
-    _settle = _WIZCHIP_PHY_SETTLE_;
-    do {
-        tmp = getPHYCFGR();
-    } while (tmp == 0 && --_settle > 0);
+#define WIZPHY_RESET_HOLD_US 200u
+#define WIZPHY_RST_BIT ((uint8_t)~PHYCFGR_RST)
+#define WIZPHY_RESET_MASK ((uint8_t)(WIZPHY_RST_BIT | PHYCFGR_OPMD | \
+                                     PHYCFGR_OPMDC_ALLA))
+#define WIZPHY_DEADLINE_ERROR (-16)
+
+static int8_t wizphy_wait_until(uint64_t deadline_us, uint64_t delay_us) {
+    uint32_t polls = 0u;
+
+    if (!time_cbs._now_us) {
+        if (!time_cbs._wait_us) {
+            return WIZPHY_DEADLINE_ERROR;
+        }
+        time_cbs._wait_us(delay_us);
+        return 0;
+    }
+
+    while (!wizchip_deadline_expired(deadline_us)) {
+        if (time_cbs._wait_us) {
+            time_cbs._wait_us(1u);
+        } else if (wait_hook) {
+            wait_hook();
+        } else {
+            return WIZPHY_DEADLINE_ERROR;
+        }
+        if (++polls >= _WIZCHIP_POLL_MAX_) {
+            return WIZPHY_DEADLINE_ERROR;
+        }
+    }
+    return 0;
 }
 
-void wizphy_setphyconf(wiz_PhyConf* phyconf) {
-    uint8_t tmp = 0;
+static int8_t wizphy_wait_readback(uint8_t expected) {
+    uint64_t deadline_us = wizchip_deadline_abs(timeout_config.phy_timeout_us);
+    uint32_t poll_limit = _WIZCHIP_POLL_MAX_;
+    uint32_t polls = 0u;
+
+    if (!time_cbs._now_us && time_cbs._wait_us &&
+        timeout_config.phy_timeout_us < poll_limit) {
+        poll_limit = timeout_config.phy_timeout_us;
+    }
+
+    do {
+        if ((getPHYCFGR() & WIZPHY_RESET_MASK) ==
+            (expected & WIZPHY_RESET_MASK)) {
+            return 0;
+        }
+        if (time_cbs._wait_us) {
+            time_cbs._wait_us(1u);
+        } else if (wait_hook) {
+            wait_hook();
+        } else {
+            return WIZPHY_DEADLINE_ERROR;
+        }
+        if (++polls >= poll_limit) {
+            return WIZPHY_DEADLINE_ERROR;
+        }
+    } while (!time_cbs._now_us || !wizchip_deadline_expired(deadline_us));
+
+    return WIZPHY_DEADLINE_ERROR;
+}
+
+static int8_t wizphy_reset_locked(uint8_t configured) {
+    uint8_t reset_low = configured & (uint8_t)~WIZPHY_RST_BIT;
+    uint8_t reset_high = configured | WIZPHY_RST_BIT;
+    uint64_t hold_deadline_us;
+
+    setPHYCFGR(reset_low);
+    if (wizphy_wait_readback(reset_low) != 0) {
+        return WIZPHY_DEADLINE_ERROR;
+    }
+
+    hold_deadline_us = wizchip_deadline_abs(WIZPHY_RESET_HOLD_US);
+    if (wizphy_wait_until(hold_deadline_us, WIZPHY_RESET_HOLD_US) != 0) {
+        return WIZPHY_DEADLINE_ERROR;
+    }
+
+    setPHYCFGR(reset_high);
+    return wizphy_wait_readback(reset_high);
+}
+
+int8_t wizphy_reset(void) {
+    uint8_t configured;
+    int8_t ret;
+
+    WIZCHIP_GLOBAL_LOCK();
+    configured = getPHYCFGR();
+    ret = wizphy_reset_locked(configured);
+    WIZCHIP_GLOBAL_UNLOCK();
+    return ret;
+}
+
+int8_t wizphy_setphyconf(wiz_PhyConf* phyconf) {
+    uint8_t tmp;
+    int8_t ret;
+
+    if (!phyconf || phyconf->by > PHY_CONFBY_SW ||
+        phyconf->mode > PHY_MODE_AUTONEGO ||
+        phyconf->speed > PHY_SPEED_100 ||
+        phyconf->duplex > PHY_DUPLEX_FULL) {
+        return -1;
+    }
+
+    WIZCHIP_GLOBAL_LOCK();
+    tmp = getPHYCFGR();
+    tmp &= (uint8_t)~(PHYCFGR_OPMD | PHYCFGR_OPMDC_ALLA);
     if (phyconf->by == PHY_CONFBY_SW) {
         tmp |= PHYCFGR_OPMD;
-    } else {
-        tmp &= ~PHYCFGR_OPMD;
     }
     if (phyconf->mode == PHY_MODE_AUTONEGO) {
         tmp |= PHYCFGR_OPMDC_ALLA;
@@ -1286,12 +1981,21 @@ void wizphy_setphyconf(wiz_PhyConf* phyconf) {
         }
     }
     setPHYCFGR(tmp);
-    wizphy_reset();
+    ret = wizphy_reset_locked(tmp);
+    WIZCHIP_GLOBAL_UNLOCK();
+    return ret;
 }
 
-void wizphy_getphyconf(wiz_PhyConf* phyconf) {
-    uint8_t tmp = 0;
+int8_t wizphy_getphyconf(wiz_PhyConf* phyconf) {
+    uint8_t tmp;
+
+    if (!phyconf) {
+        return -1;
+    }
+
+    WIZCHIP_GLOBAL_LOCK();
     tmp = getPHYCFGR();
+    WIZCHIP_GLOBAL_UNLOCK();
     phyconf->by   = (tmp & PHYCFGR_OPMD) ? PHY_CONFBY_SW : PHY_CONFBY_HW;
     switch (tmp & PHYCFGR_OPMDC_ALLA) {
     case PHYCFGR_OPMDC_ALLA:
@@ -1322,44 +2026,53 @@ void wizphy_getphyconf(wiz_PhyConf* phyconf) {
         phyconf->duplex = PHY_DUPLEX_HALF;
         break;
     }
+    return 0;
 }
 
-void wizphy_getphystat(wiz_PhyConf* phyconf) {
-    uint8_t tmp = getPHYCFGR();
+int8_t wizphy_getphystat(wiz_PhyConf* phyconf) {
+    uint8_t tmp;
+
+    if (!phyconf) {
+        return -1;
+    }
+
+    WIZCHIP_GLOBAL_LOCK();
+    tmp = getPHYCFGR();
+    WIZCHIP_GLOBAL_UNLOCK();
     phyconf->duplex = (tmp & PHYCFGR_DPX_FULL) ? PHY_DUPLEX_FULL : PHY_DUPLEX_HALF;
     phyconf->speed  = (tmp & PHYCFGR_SPD_100) ? PHY_SPEED_100 : PHY_SPEED_10;
+    return (tmp & PHYCFGR_LNK_ON) ? PHY_LINK_ON : PHY_LINK_OFF;
 }
 
 int8_t wizphy_setphypmode(uint8_t pmode) {
-    uint8_t tmp = 0;
-    tmp = getPHYCFGR();
-    if ((tmp & PHYCFGR_OPMD) == 0) {
+    uint8_t tmp;
+    int8_t ret;
+
+    if (pmode != PHY_POWER_NORM && pmode != PHY_POWER_DOWN) {
         return -1;
     }
-    tmp &= ~PHYCFGR_OPMDC_ALLA;
+
+    WIZCHIP_GLOBAL_LOCK();
+    tmp = getPHYCFGR();
+    if ((tmp & PHYCFGR_OPMD) == 0) {
+        WIZCHIP_GLOBAL_UNLOCK();
+        return -1;
+    }
+    tmp &= (uint8_t)~PHYCFGR_OPMDC_ALLA;
     if (pmode == PHY_POWER_DOWN) {
         tmp |= PHYCFGR_OPMDC_PDOWN;
     } else {
         tmp |= PHYCFGR_OPMDC_ALLA;
     }
     setPHYCFGR(tmp);
-    wizphy_reset();
-    tmp = getPHYCFGR();
-    if (pmode == PHY_POWER_DOWN) {
-        if ((tmp & PHYCFGR_OPMDC_ALLA) == PHYCFGR_OPMDC_PDOWN) {
-            return 0;
-        }
-    } else {
-        if ((tmp & PHYCFGR_OPMDC_ALLA) == PHYCFGR_OPMDC_ALLA) {
-            return 0;
-        }
-    }
-    return -1;
+    ret = wizphy_reset_locked(tmp);
+    WIZCHIP_GLOBAL_UNLOCK();
+    return ret;
 }
 
 //teddy 240122
 #elif _WIZCHIP_ == W6100 || _WIZCHIP_ == W6300
-void wizphy_reset(void) {
+int8_t wizphy_reset(void) {
 #if (_PHY_IO_MODE_ == _PHY_IO_MODE_PHYCR_)
     uint8_t tmp = getPHYCR1() | PHYCR1_RST;
     PHYUNLOCK();
@@ -1369,9 +2082,13 @@ void wizphy_reset(void) {
     wiz_mdio_write(PHYRAR_BMCR, wiz_mdio_read(PHYRAR_BMCR) | BMCR_RST);
     while (wiz_mdio_read(PHYRAR_BMCR) & BMCR_RST);
 #endif
+    return 0;
 }
 
-void wizphy_setphyconf(wiz_PhyConf* phyconf) {
+int8_t wizphy_setphyconf(wiz_PhyConf* phyconf) {
+    if (!phyconf) {
+        return -1;
+    }
 #if (_PHY_IO_MODE_ == _PHY_IO_MODE_PHYCR_)
     uint8_t tmp = 0;
     if (phyconf->mode == PHY_MODE_TE) {
@@ -1413,9 +2130,13 @@ void wizphy_setphyconf(wiz_PhyConf* phyconf) {
         wiz_mdio_write(PHYRAR_BMCR, tmp);
     }
 #endif
+    return 0;
 }
 
-void wizphy_getphyconf(wiz_PhyConf* phyconf) {
+int8_t wizphy_getphyconf(wiz_PhyConf* phyconf) {
+    if (!phyconf) {
+        return -1;
+    }
 #if (_PHY_IO_MODE_ == _PHY_IO_MODE_PHYCR_)
     uint8_t tmp = 0;
     tmp = getPHYSR();
@@ -1437,10 +2158,15 @@ void wizphy_getphyconf(wiz_PhyConf* phyconf) {
     phyconf->duplex = (tmp & BMCR_DPX) ? PHY_DUPLEX_FULL   : PHY_DUPLEX_HALF;
     phyconf->speed  = (tmp & BMCR_SPD) ? PHY_SPEED_100     : PHY_SPEED_10;
 #endif
+    return 0;
 }
 
-void wizphy_getphystat(wiz_PhyConf* phyconf) {
+int8_t wizphy_getphystat(wiz_PhyConf* phyconf) {
     uint8_t tmp = 0;
+
+    if (!phyconf) {
+        return -1;
+    }
     tmp = getPHYSR();
     if (getPHYCR1() & PHYCR1_TE) {
         phyconf->mode = PHY_MODE_TE;
@@ -1449,9 +2175,13 @@ void wizphy_getphystat(wiz_PhyConf* phyconf) {
     }
     phyconf->speed  = (tmp & PHYSR_SPD) ? PHY_SPEED_10    : PHY_SPEED_100;
     phyconf->duplex = (tmp & PHYSR_DPX) ? PHY_DUPLEX_HALF : PHY_DUPLEX_FULL;
+    return 0;
 }
 
-void wizphy_setphypmode(uint8_t pmode) {
+int8_t wizphy_setphypmode(uint8_t pmode) {
+    if (pmode != PHY_POWER_NORM && pmode != PHY_POWER_DOWN) {
+        return -1;
+    }
 #if (_PHY_IO_MODE_ == _PHY_IO_MODE_PHYCR_)
     uint8_t tmp = getPHYCR1();
     if (pmode == PHY_POWER_DOWN) {
@@ -1470,6 +2200,7 @@ void wizphy_setphypmode(uint8_t pmode) {
     }
     wiz_mdio_write(PHYRAR_BMCR, tmp);
 #endif
+    return 0;
 }
 
 int8_t wizchip_arp(wiz_ARP* arp) {
@@ -1569,7 +2300,7 @@ int8_t wizchip_getprefix(wiz_Prefix * prefix) {
 #endif
 
 #if (_WIZCHIP_ == W5100 || _WIZCHIP_ == W5100S || _WIZCHIP_ == W5200 || _WIZCHIP_ == W5300 || _WIZCHIP_ == W5500)
-void wizchip_setnetinfo(wiz_NetInfo* pnetinfo) {
+static void wizchip_setnetinfo_locked(wiz_NetInfo* pnetinfo) {
     setSHAR(pnetinfo->mac);
     setGAR(pnetinfo->gw);
     setSUBR(pnetinfo->sn);
@@ -1581,7 +2312,13 @@ void wizchip_setnetinfo(wiz_NetInfo* pnetinfo) {
     _DHCP_   = pnetinfo->dhcp;
 }
 
-void wizchip_getnetinfo(wiz_NetInfo* pnetinfo) {
+void wizchip_setnetinfo(wiz_NetInfo* pnetinfo) {
+    WIZCHIP_GLOBAL_LOCK();
+    wizchip_setnetinfo_locked(pnetinfo);
+    WIZCHIP_GLOBAL_UNLOCK();
+}
+
+static void wizchip_getnetinfo_locked(wiz_NetInfo* pnetinfo) {
     getSHAR(pnetinfo->mac);
     getGAR(pnetinfo->gw);
     getSUBR(pnetinfo->sn);
@@ -1591,6 +2328,12 @@ void wizchip_getnetinfo(wiz_NetInfo* pnetinfo) {
     pnetinfo->dns[2] = _DNS_[2];
     pnetinfo->dns[3] = _DNS_[3];
     pnetinfo->dhcp  = _DHCP_;
+}
+
+void wizchip_getnetinfo(wiz_NetInfo* pnetinfo) {
+    WIZCHIP_GLOBAL_LOCK();
+    wizchip_getnetinfo_locked(pnetinfo);
+    WIZCHIP_GLOBAL_UNLOCK();
 }
 
 int8_t wizchip_setnetmode(netmode_type netmode) {
@@ -1619,18 +2362,36 @@ netmode_type wizchip_getnetmode(void) {
     return (netmode_type) getMR();
 }
 
-void wizchip_settimeout(wiz_NetTimeout* nettime) {
-    setRCR(nettime->retry_cnt);
-    setRTR(nettime->time_100us);
+static void wizchip_settimeout_locked(wiz_NetTimeout* nettime) {
+    uint8_t retry_cnt = nettime->retry_cnt;
+    uint16_t time_100us = nettime->time_100us;
+
+    if (retry_cnt < WIZCHIP_RCR_MIN) retry_cnt = WIZCHIP_RCR_MIN;
+    if (time_100us < WIZCHIP_RTR_MIN) time_100us = WIZCHIP_RTR_MIN;
+    setRTR(time_100us);
+    setRCR(retry_cnt);
+    wizchip_update_timeout_floor_locked(time_100us, retry_cnt);
 }
 
-void wizchip_gettimeout(wiz_NetTimeout* nettime) {
+void wizchip_settimeout(wiz_NetTimeout* nettime) {
+    WIZCHIP_GLOBAL_LOCK();
+    wizchip_settimeout_locked(nettime);
+    WIZCHIP_GLOBAL_UNLOCK();
+}
+
+static void wizchip_gettimeout_locked(wiz_NetTimeout* nettime) {
     nettime->retry_cnt = getRCR();
     nettime->time_100us = getRTR();
 }
+
+void wizchip_gettimeout(wiz_NetTimeout* nettime) {
+    WIZCHIP_GLOBAL_LOCK();
+    wizchip_gettimeout_locked(nettime);
+    WIZCHIP_GLOBAL_UNLOCK();
+}
 //teddy 240122
 #elif ((_WIZCHIP_ == 6100) ||(_WIZCHIP_ == 6300))
-void wizchip_setnetinfo(wiz_NetInfo* pnetinfo) {
+static void wizchip_setnetinfo_locked(wiz_NetInfo* pnetinfo) {
     uint8_t i = 0;
     setSHAR(pnetinfo->mac);
     setGAR(pnetinfo->gw);
@@ -1651,7 +2412,13 @@ void wizchip_setnetinfo(wiz_NetInfo* pnetinfo) {
     _IPMODE_   = pnetinfo->ipmode;
 }
 
-void wizchip_getnetinfo(wiz_NetInfo* pnetinfo) {
+void wizchip_setnetinfo(wiz_NetInfo* pnetinfo) {
+    WIZCHIP_GLOBAL_LOCK();
+    wizchip_setnetinfo_locked(pnetinfo);
+    WIZCHIP_GLOBAL_UNLOCK();
+}
+
+static void wizchip_getnetinfo_locked(wiz_NetInfo* pnetinfo) {
     uint8_t i = 0;
     getSHAR(pnetinfo->mac);
 
@@ -1671,6 +2438,12 @@ void wizchip_getnetinfo(wiz_NetInfo* pnetinfo) {
     }
 
     pnetinfo->ipmode = _IPMODE_;
+}
+
+void wizchip_getnetinfo(wiz_NetInfo* pnetinfo) {
+    WIZCHIP_GLOBAL_LOCK();
+    wizchip_getnetinfo_locked(pnetinfo);
+    WIZCHIP_GLOBAL_UNLOCK();
 }
 
 void wizchip_setnetmode(netmode_type netmode) {
@@ -1695,18 +2468,35 @@ netmode_type wizchip_getnetmode(void) {
 //    return (netmode_type) getMR();
 // }
 
-void wizchip_settimeout(wiz_NetTimeout* nettime) {
-    setRCR(nettime->s_retry_cnt);
-    setRTR(nettime->s_time_100us);
+static void wizchip_settimeout_locked(wiz_NetTimeout* nettime) {
+    uint8_t retry_cnt = nettime->s_retry_cnt;
+    uint16_t time_100us = nettime->s_time_100us;
+
+    if (retry_cnt < WIZCHIP_RCR_MIN) retry_cnt = WIZCHIP_RCR_MIN;
+    if (time_100us < WIZCHIP_RTR_MIN) time_100us = WIZCHIP_RTR_MIN;
+    setRTR(time_100us);
+    setRCR(retry_cnt);
     setSLRCR(nettime->sl_retry_cnt);
     setSLRTR(nettime->sl_time_100us);
+    wizchip_update_timeout_floor_locked(time_100us, retry_cnt);
 }
 
-void wizchip_gettimeout(wiz_NetTimeout* nettime) {
+void wizchip_settimeout(wiz_NetTimeout* nettime) {
+    WIZCHIP_GLOBAL_LOCK();
+    wizchip_settimeout_locked(nettime);
+    WIZCHIP_GLOBAL_UNLOCK();
+}
+
+static void wizchip_gettimeout_locked(wiz_NetTimeout* nettime) {
     nettime->s_retry_cnt   = getRCR();
     nettime->s_time_100us  = getRTR();
     nettime->sl_retry_cnt  = getSLRCR();
     nettime->sl_time_100us = getSLRTR();
 }
-#endif
 
+void wizchip_gettimeout(wiz_NetTimeout* nettime) {
+    WIZCHIP_GLOBAL_LOCK();
+    wizchip_gettimeout_locked(nettime);
+    WIZCHIP_GLOBAL_UNLOCK();
+}
+#endif

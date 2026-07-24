@@ -59,6 +59,91 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+
+#define _WIZCHIP_POLL_MAX_ 100000
+#define WIZCHIP_RTR_MIN 1u
+#define WIZCHIP_RCR_MIN 1u
+#define WIZCHIP_RETRY_MARGIN_US 100000u
+#define WIZCHIP_OPERATION_TIMEOUT_DEFAULT_US 2000000u
+
+typedef uint64_t (*wizchip_time_fn)(void);
+typedef void (*wizchip_wait_fn)(uint64_t us);
+typedef void (*wizchip_wait_hook_fn)(void);
+
+typedef struct {
+    wizchip_time_fn _now_us;
+    wizchip_wait_fn _wait_us;
+} wizchip_time_cbs_t;
+
+typedef struct {
+    uint32_t command_timeout_us;
+    uint32_t operation_timeout_us;
+    uint32_t phy_timeout_us;
+} wizchip_timeout_config_t;
+
+typedef struct {
+    uint64_t started_us;
+    uint64_t deadline_us;
+    uint64_t timeout_us;
+    uint32_t polls;
+} wizchip_deadline_t;
+
+void reg_wizchip_time_cbfunc(wizchip_time_fn now_fn, wizchip_wait_fn wait_fn);
+void reg_wizchip_time_hook_cbfunc(wizchip_time_fn now_fn,
+                                  wizchip_wait_hook_fn wait_fn);
+uint8_t wizchip_timeout_config_set(uint32_t timeout_us);
+uint64_t wizchip_deadline_abs(uint64_t timeout_us);
+int8_t wizchip_deadline_expired(uint64_t deadline_us);
+uint64_t wizchip_time_now(void);
+
+int8_t wizchip_set_timeout_config(const wizchip_timeout_config_t *config);
+int8_t wizchip_get_timeout_config(wizchip_timeout_config_t *config);
+void wizchip_deadline_start(wizchip_deadline_t *deadline,
+                            uint64_t timeout_us);
+int8_t wizchip_deadline_poll(wizchip_deadline_t *deadline);
+
+#ifndef __cplusplus
+#define reg_wizchip_time_cbfunc(now_fn, wait_fn) \
+    _Generic((wait_fn), \
+        wizchip_wait_hook_fn: reg_wizchip_time_hook_cbfunc, \
+        default: reg_wizchip_time_cbfunc \
+    )((now_fn), (wait_fn))
+#endif
+
+#ifndef WIZCHIP_STATE_T_DEFINED
+typedef enum {
+    WIZCHIP_STATE_UNINIT = 0,
+    WIZCHIP_STATE_READY,
+    WIZCHIP_STATE_FAULTED
+} wizchip_state_t;
+
+#define WIZCHIP_STATE_T_DEFINED
+#define WIZCHIP_STATE_UNINITIALIZED WIZCHIP_STATE_UNINIT
+#endif
+
+wizchip_state_t wizchip_get_state(void);
+void wizchip_mark_faulted(void);
+int8_t wizchip_get_last_error(void);
+void wizchip_set_last_error(int8_t error);
+void wizchip_clear_last_error(void);
+int8_t wizchip_recover(void);
+uint8_t wizchip_get_spi_error(void);
+void wizchip_clear_spi_error(void);
+
+uint8_t wizchip_read8_checked(uint32_t addr);
+int8_t wizchip_write8_checked(uint32_t addr, uint8_t data);
+int8_t wizchip_read_buf_checked(uint32_t addr, uint8_t *buf, uint16_t len);
+int8_t wizchip_write_buf_checked(uint32_t addr, const uint8_t *buf,
+                                 uint16_t len);
+
+/* Compatibility for the status/out spelling used by the T014 regression. */
+int8_t wizchip_read8_checked_out(uint32_t addr, uint8_t *out);
+#define WIZCHIP_READ8_CHECKED_SELECT(_1, _2, NAME, ...) NAME
+#define wizchip_read8_checked(...) \
+    WIZCHIP_READ8_CHECKED_SELECT(__VA_ARGS__, \
+                                 wizchip_read8_checked_out, \
+                                 wizchip_read8_checked)(__VA_ARGS__)
+
 /**
     @brief Select WIZCHIP.
     @todo You should select one, \b W5100, \b W5100S, \b W5200, \b W5300, \b W5500 or etc. \n\n
@@ -360,6 +445,18 @@ typedef   int16_t   datasize_t;     ///< sent or received data size
     @ingroup DATA_TYPE
     @brief The set of callback functions for W5500:@ref WIZCHIP_IO_Functions W5200:@ref WIZCHIP_IO_Functions_W5200
 */
+struct _SPISTATUS {
+    uint8_t (*_check_busy)(void);
+    union {
+        int8_t (*_check_error)(void);
+        int8_t (*_get_error)(void);
+    };
+    union {
+        void (*_clear)(void);
+        void (*_clear_error)(void);
+    };
+};
+
 typedef struct __WIZCHIP {
     uint16_t  if_mode;               ///< host interface mode
     uint8_t   id[8];                 ///< @b WIZCHIP ID such as @b 5100, @b 5100S, @b 5200, @b 5500, and so on.
@@ -431,15 +528,6 @@ typedef struct __WIZCHIP {
             void    (*_write_burst) (uint8_t* pBuf, uint16_t len);
         } SPI;
 
-        /** SPI bus status callbacks (AUD-009).
-            @brief Query SPI bus state: busy/timeout/overrun.
-            @note Optional: implement to propagate I/O errors to
-            socket callers. Default stubs always return OK. */
-        struct {
-            uint8_t (*_check_busy)(void);    ///< Return 1 if SPI is busy
-            uint8_t (*_get_error)(void);     ///< Return HAL_ERROR, HAL_TIMEOUT etc.
-        } SPI_STATUS;
-
         /**
             For QSPI interface IO
         */
@@ -451,12 +539,14 @@ typedef struct __WIZCHIP {
         // To be added
         //
     } IF;
+    /** SPI bus status callbacks, stored independently from interface callbacks. */
+    struct _SPISTATUS SPISTATUS;
     /**
         The set of socket and global concurrency lock callbacks.
         @note Multi-task deployments must provide real implementations.
         Defaults are no-ops safe for single-task operation. Per-socket
         locks serialize operations on one socket; the global lock protects
-        cross-socket state (port allocator, mode bitfields).
+        cross-socket state and multi-register configuration transactions.
     */
     struct _LOCK {
         void (*_sock_enter)(uint8_t sn);    ///< Lock socket N
@@ -466,15 +556,28 @@ typedef struct __WIZCHIP {
     } LOCK;
 } _WIZCHIP;
 
+/* Preserve the public spelling used by the T008 regression. */
+#define SPI_STATUS SPISTATUS
+
 /*
  * Socket concurrency lock macros.
  * Multi-task deployments: register real lock callbacks via
  * reg_wizchip_lock_cbfunc(). Defaults are no-ops for single-task.
  */
-#define WIZCHIP_SOCK_LOCK(sn)      WIZCHIP.LOCK._sock_enter(sn)
-#define WIZCHIP_SOCK_UNLOCK(sn)    WIZCHIP.LOCK._sock_exit(sn)
-#define WIZCHIP_GLOBAL_LOCK()      WIZCHIP.LOCK._global_enter()
-#define WIZCHIP_GLOBAL_UNLOCK()    WIZCHIP.LOCK._global_exit()
+#define WIZCHIP_SOCK_LOCK(sn) do { \
+    if (WIZCHIP.LOCK._sock_enter) WIZCHIP.LOCK._sock_enter(sn); \
+} while (0)
+#define WIZCHIP_SOCK_UNLOCK(sn) do { \
+    if (WIZCHIP.LOCK._sock_exit) WIZCHIP.LOCK._sock_exit(sn); \
+} while (0)
+#define WIZCHIP_GLOBAL_LOCK() do { \
+    if (WIZCHIP.LOCK._global_enter) WIZCHIP.LOCK._global_enter(); \
+} while (0)
+#define WIZCHIP_GLOBAL_UNLOCK() do { \
+    if (WIZCHIP.LOCK._global_exit) WIZCHIP.LOCK._global_exit(); \
+} while (0)
+#define WIZCHIP_SPI_BUSY_CHECK()   (WIZCHIP.SPISTATUS._check_busy ? WIZCHIP.SPISTATUS._check_busy() : 0u)
+#define WIZCHIP_SPI_ERROR_CHECK()  (WIZCHIP.SPISTATUS._check_error ? WIZCHIP.SPISTATUS._check_error() : (int8_t)0)
 
 /* @note This library assumes single-task operation. Shared socket state
 
@@ -487,8 +590,8 @@ typedef struct __WIZCHIP {
  * be called from ISR context. */
 extern _WIZCHIP  WIZCHIP;
 
-/* Cached socket buffer sizes (bytes) — populated by wizchip_init.
-   Using these avoids per-operation SPI reads of Sn_TXBUF_SIZE/Sn_RXBUF_SIZE. */
+/* Cached socket buffer sizes in bytes. W5500 setters publish new capacities
+   only after a checked register write and matching checked readback. */
 extern uint16_t wizchip_txmax_cache[_WIZCHIP_SOCK_NUM_];
 extern uint16_t wizchip_rxmax_cache[_WIZCHIP_SOCK_NUM_];
 
@@ -968,6 +1071,17 @@ void reg_wizchip_spi_cbfunc(uint8_t (*spi_rb)(void), void (*spi_wb)(uint8_t wb))
 */
 void reg_wizchip_spiburst_cbfunc(void (*spi_rb)(uint8_t* pBuf, uint16_t len), void (*spi_wb)(uint8_t* pBuf, uint16_t len));
 
+int8_t reg_wizchip_lock_cbfunc(
+    void (*sock_enter)(uint8_t sn),
+    void (*sock_exit)(uint8_t sn),
+    void (*global_enter)(void),
+    void (*global_exit)(void));
+
+void reg_wizchip_spistatus_cbfunc(
+    uint8_t (*busy_cb)(void),
+    int8_t (*error_cb)(void),
+    void (*clear_cb)(void));
+
 //teddy 240122
 /**
     @brief Registers call back function for QSPI interface.
@@ -985,7 +1099,9 @@ void reg_wizchip_qspi_cbfunc(void (*qspi_rb)(uint8_t opcode, uint16_t addr, uint
     @details Resets WIZCHIP & internal PHY, Configures PHY mode, Monitor PHY(Link,Speed,Half/Full/Auto),
     controls interrupt & mask and so on.
     @param cwtype : Decides to the control type
-    @param arg : arg type is dependent on cwtype.
+    @param arg : arg type is dependent on cwtype. Interrupt get, clear, and
+                 mask controls require a non-null pointer and execute as one
+                 global-lock transaction.
     @return  0 : Success \n
            -1 : Fail because of invalid \ref ctlwizchip_type or unsupported \ref ctlwizchip_type in WIZCHIP
 */
@@ -1024,6 +1140,10 @@ int8_t ctlnetservice(ctlnetservice_type cnstype, void* arg);
 /**
     @ingroup extra_functions
     @brief Reset WIZCHIP by softly.
+    @details Executes under the global lock and every socket lock, acquired in
+             ascending socket order and released in descending order.
+    @return 0 on verified reset; a negative error with the chip FAULTED on
+            hardware or readback failure.
 */
 int8_t wizchip_sw_reset(void);
 
@@ -1032,6 +1152,9 @@ int8_t wizchip_sw_reset(void);
     @brief Initializes WIZCHIP with socket buffer size
     @param txsize Socket tx buffer sizes. If null, initialized the default size 2KB.
     @param rxsize Socket rx buffer sizes. If null, initialized the default size 2KB.
+    @details Buffer programming and cache publication execute as one
+             global-plus-all-socket transaction. A failed transaction leaves
+             completed socket-state publication intact and faults the chip.
     @return 0 : succcess \n
           -1 : fail. Invalid buffer size
 */
@@ -1066,12 +1189,14 @@ intr_kind wizchip_getinterrupt(void);
     @ingroup extra_functions
     @brief Mask or Unmask Interrupt of WIZCHIP.
     @param intr : @ref intr_kind value operated OR. It can type-cast to uint16_t.
+    @details The complete interrupt mask is written under the global lock.
 */
 void wizchip_setinterruptmask(intr_kind intr);
 
 /**
     @ingroup extra_functions
     @brief Get Interrupt mask of WIZCHIP.
+    @details The complete interrupt mask is read under the global lock.
     @return : The operated OR vaule of @ref intr_kind. It can type-cast to uint16_t.
 */
 intr_kind wizchip_getinterruptmask(void);
@@ -1083,9 +1208,9 @@ int8_t wizphy_getphypmode(void);             ///< get the power mode of PHY in W
 #endif
 
 #if _WIZCHIP_ == W5100S || _WIZCHIP_ == W5500
-void   wizphy_reset(void);                   ///< Reset phy. Vailid only in W5500
-void   wizphy_powerdown(void);               ///< Power-down PHY (OPMDC_PDOWN)
-void   wizphy_powerup(void);                 ///< Power-up PHY from power-down
+int8_t wizphy_reset(void);                   ///< Reset phy. Vailid only in W5500
+int8_t wizphy_powerdown(void);               ///< Power-down PHY (OPMDC_PDOWN)
+int8_t wizphy_powerup(void);                 ///< Power-up PHY from power-down
 void   wiznet_wol_enable(uint8_t sn);        ///< Enable Wake-on-LAN on socket
 void   wiznet_wol_disable(void);             ///< Disable Wake-on-LAN
 /**
@@ -1093,19 +1218,19 @@ void   wiznet_wol_disable(void);             ///< Disable Wake-on-LAN
     @brief Set the phy information for WIZCHIP without power mode
     @param phyconf : @ref wiz_PhyConf
 */
-void   wizphy_setphyconf(wiz_PhyConf* phyconf);
+int8_t wizphy_setphyconf(wiz_PhyConf* phyconf);
 /**
     @ingroup extra_functions
     @brief Get phy configuration information.
     @param phyconf : @ref wiz_PhyConf
 */
-void   wizphy_getphyconf(wiz_PhyConf* phyconf);
+int8_t wizphy_getphyconf(wiz_PhyConf* phyconf);
 /**
     @ingroup extra_functions
     @brief Get phy status.
     @param phyconf : @ref wiz_PhyConf
 */
-void   wizphy_getphystat(wiz_PhyConf* phyconf);
+int8_t wizphy_getphystat(wiz_PhyConf* phyconf);
 /**
     @ingroup extra_functions
     @brief set the power mode of phy inside WIZCHIP. Refer to @ref PHYCFGR in W5500, @ref PHYSTATUS in W5200
@@ -1125,7 +1250,7 @@ int8_t wizphy_setphypmode(uint8_t pmode);
     @sa ctlwizchip(), CW_RESET_PHY
     @sa _PHY_IO_MODE_
 */
-void wizphy_reset(void);                   ///< Reset phy. Vailid only in W5500
+int8_t wizphy_reset(void);                 ///< Reset phy. Vailid only in W5500
 
 /**
     @ingroup extra_functions
@@ -1136,7 +1261,7 @@ void wizphy_reset(void);                   ///< Reset phy. Vailid only in W5500
     @sa ctlwizchip(), CW_SET_PHYCONF, CW_GET_PHYCONF, CW_GET_PHYSTATUS, CW_RESET_PHY
     @sa _PHY_IO_MODE_, wizphy_getphyconf(), wizphy_getphystatus(), wizphy_reset()
 */
-void wizphy_setphyconf(wiz_PhyConf* phyconf);
+int8_t wizphy_setphyconf(wiz_PhyConf* phyconf);
 
 /**
     @ingroup extra_functions
@@ -1149,7 +1274,7 @@ void wizphy_setphyconf(wiz_PhyConf* phyconf);
     @sa ctlwizchip(), CW_GET_PHYCONF, CW_SET_PHYCONF, CW_GET_PHYSTATUS
     @sa _PHY_IO_MODE_, wizphy_setphyconf(), wizphy_getphystatus()
 */
-void wizphy_getphyconf(wiz_PhyConf* phyconf);
+int8_t wizphy_getphyconf(wiz_PhyConf* phyconf);
 
 /**
     @ingroup extra_functions
@@ -1159,7 +1284,7 @@ void wizphy_getphyconf(wiz_PhyConf* phyconf);
     @sa ctlwizchip(), CW_GET_PHYSTATUS, CW_GET_PHYCONF, CW_SET_PHYCONF
     @sa wizphy_setphyconf(), wizphy_getphyconf()
 */
-void wizphy_getphystat(wiz_PhyConf* phyconf);
+int8_t wizphy_getphystat(wiz_PhyConf* phyconf);
 
 /**
     @ingroup extra_functions
@@ -1173,7 +1298,7 @@ void wizphy_getphystat(wiz_PhyConf* phyconf);
     @sa ctlwizchip(), CW_SET_PHYPOWMODE, CW_GET_PHYPOWMODE
     @sa _PHY_IO_MODE_, wizphy_setphypmode(), wizphy_getphypmode()
 */
-void wizphy_setphypmode(uint8_t pmode);
+int8_t wizphy_setphypmode(uint8_t pmode);
 
 /**
     @ingroup extra_functions
@@ -1323,7 +1448,7 @@ int8_t wizchip_getprefix(wiz_Prefix * prefix);
 
 void wizchip_wdt_kick(void);
 void reg_wizchip_wdt_cbfunc(void (*kick)(void));
-void wizchip_phy_link_callback(void);
+void wizchip_phy_link_callback(uint8_t link_up);
 void reg_wizchip_phy_cbfunc(void (*callback)(uint8_t link_up));
 
 #if (_WIZCHIP_ == W5100 || _WIZCHIP_ == W5100S || _WIZCHIP_ == W5200 || _WIZCHIP_ == W5300 || _WIZCHIP_ == W5500)
@@ -1331,6 +1456,8 @@ void reg_wizchip_phy_cbfunc(void (*callback)(uint8_t link_up));
     @ingroup extra_functions
     @brief Set the network information for WIZCHIP
     @param pnetinfo : @ref wizNetInfo
+    @details The hardware identity and software DNS/DHCP values are published
+             as one global-lock transaction.
 */
 void wizchip_setnetinfo(wiz_NetInfo* pnetinfo);
 
@@ -1338,6 +1465,8 @@ void wizchip_setnetinfo(wiz_NetInfo* pnetinfo);
     @ingroup extra_functions
     @brief Get the network information for WIZCHIP
     @param pnetinfo : @ref wizNetInfo
+    @details Returns one coherent global-lock snapshot of the hardware identity
+             and software DNS/DHCP values.
 */
 void wizchip_getnetinfo(wiz_NetInfo* pnetinfo);
 
@@ -1359,6 +1488,9 @@ netmode_type wizchip_getnetmode(void);
     @ingroup extra_functions
     @brief Set retry time value(@ref _RTR_) and retry count(@ref _RCR_).
     @details @ref _RTR_ configures the retransmission timeout period and @ref _RCR_ configures the number of time of retransmission.
+             Both registers and the derived operation-deadline floor are
+             updated as one global-lock transaction. Values below
+             @ref WIZCHIP_RTR_MIN or @ref WIZCHIP_RCR_MIN are clamped.
     @param nettime @ref _RTR_ value and @ref _RCR_ value. Refer to @ref wiz_NetTimeout.
 */
 void wizchip_settimeout(wiz_NetTimeout* nettime);
@@ -1367,6 +1499,7 @@ void wizchip_settimeout(wiz_NetTimeout* nettime);
     @ingroup extra_functions
     @brief Get retry time value(@ref _RTR_) and retry count(@ref _RCR_).
     @details @ref _RTR_ configures the retransmission timeout period and @ref _RCR_ configures the number of time of retransmission.
+             Both values are returned from one global-lock snapshot.
     @param nettime @ref _RTR_ value and @ref _RCR_ value. Refer to @ref wiz_NetTimeout.
 */
 void wizchip_gettimeout(wiz_NetTimeout* nettime);
