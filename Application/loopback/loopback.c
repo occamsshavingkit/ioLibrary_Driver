@@ -1,10 +1,11 @@
+#include <inttypes.h>
 #include <stdio.h>
 #include "loopback.h"
 #include "socket.h"
 #include "wizchip_conf.h"
 
 
-#if LOOPBACK_MODE == LOOPBACK_MAIN_NOBLCOK
+#if LOOPBACK_MODE == LOOPBACK_MAIN_NOBLOCK
 
 
 static int8_t loopback_mode = 0 ;
@@ -34,6 +35,13 @@ int32_t loopback_tcps(uint8_t sn, uint8_t* buf, uint16_t port) {
 #endif
             setSn_IR(sn, Sn_IR_CON);
         }
+        /*
+         * Optimization (AUD-034): Application pre-probes getSn_RX_RSR()
+         * before calling recv()/recvfrom(), which also calls getSn_RX_RSR()
+         * internally (socket.c:664). When nonblocking receive semantics are
+         * active (see AUD-004), the pre-probe can be dropped and the receive
+         * API trusted to perform the check once, saving ~4 SPI frames/packet.
+         */
         if ((size = getSn_RX_RSR(sn)) > 0) { // Don't need to check SOCKERR_BUSY because it doesn't not occur.
             if (size > DATA_BUF_SIZE) {
                 size = DATA_BUF_SIZE;
@@ -51,6 +59,9 @@ int32_t loopback_tcps(uint8_t sn, uint8_t* buf, uint16_t port) {
                 if (ret < 0) {
                     close(sn);
                     return ret;
+                }
+                if (ret == SOCK_BUSY) {
+                    break;
                 }
                 sentsize += ret; // Don't care SOCKERR_BUSY, because it is zero.
             }
@@ -139,6 +150,7 @@ int32_t loopback_tcpc(uint8_t sn, uint8_t* buf, uint8_t* destip, uint16_t destpo
                     close(sn); // socket close
                     return ret;
                 }
+                if (ret == SOCK_BUSY) { break; }
                 sentsize += ret; // Don't care SOCKERR_BUSY, because it is zero.
             }
         }
@@ -189,8 +201,8 @@ int32_t loopback_tcpc(uint8_t sn, uint8_t* buf, uint8_t* destip, uint16_t destpo
 int32_t loopback_udps(uint8_t sn, uint8_t* buf, uint16_t port) {
     int32_t  ret;
     uint16_t size, sentsize;
-    uint8_t  destip[4];
-    uint16_t destport;
+    static uint8_t  destip[4];
+    static uint16_t destport;
 
     switch (getSn_SR(sn)) {
     case SOCK_UDP :
@@ -201,7 +213,7 @@ int32_t loopback_udps(uint8_t sn, uint8_t* buf, uint16_t port) {
             ret = recvfrom(sn, buf, size, destip, (uint16_t*)&destport);
             if (ret <= 0) {
 #ifdef _LOOPBACK_DEBUG_
-                printf("%d: recvfrom error. %ld\r\n", sn, ret);
+                printf("%d: recvfrom error. %"PRId32"\r\n", sn, ret);
 #endif
                 return ret;
             }
@@ -211,10 +223,11 @@ int32_t loopback_udps(uint8_t sn, uint8_t* buf, uint16_t port) {
                 ret = sendto(sn, buf + sentsize, size - sentsize, destip, destport);
                 if (ret < 0) {
 #ifdef _LOOPBACK_DEBUG_
-                    printf("%d: sendto error. %ld\r\n", sn, ret);
+                    printf("%d: sendto error. %"PRId32"\r\n", sn, ret);
 #endif
                     return ret;
                 }
+                if (ret == SOCK_BUSY) { break; }
                 sentsize += ret; // Don't care SOCKERR_BUSY, because it is zero.
             }
         }
@@ -239,6 +252,7 @@ int32_t loopback_udpc(uint8_t sn, uint8_t* buf, uint8_t* destip, uint16_t destpo
     int32_t ret;
     uint16_t size = 0, sentsize = 0;
     static uint16_t any_port = 50000;
+    if (++any_port < 1024 || any_port > 65534) any_port = 50000;
     // uint8_t* strtest = "\r\nhello world";
     // uint8_t flag = 0;
     switch (getSn_SR(sn)) {
@@ -249,24 +263,25 @@ int32_t loopback_udpc(uint8_t sn, uint8_t* buf, uint8_t* destip, uint16_t destpo
                 size = DATA_BUF_SIZE;
             }
             ret = recvfrom(sn, buf, size, destip, (uint16_t*)&destport);
-            buf[ret] = 0x00;
-            printf("recv form[%d.%d.%d.%d][%d]: %s\n", destip[0], destip[1], destip[2], destip[3], destport, buf);
             if (ret <= 0) {
 #ifdef _LOOPBACK_DEBUG_
-                printf("%d: recvfrom error. %ld\r\n", sn, ret);
+                printf("%d: recvfrom error. %"PRId32"\r\n", sn, ret);
 #endif
                 return ret;
             }
+            buf[ret] = 0x00;
+            printf("recv form[%d.%d.%d.%d][%d]: %s\n", destip[0], destip[1], destip[2], destip[3], destport, buf);
             size = (uint16_t) ret;
             sentsize = 0;
             while (sentsize != size) {
                 ret = sendto(sn, buf + sentsize, size - sentsize, destip, destport);
                 if (ret < 0) {
 #ifdef _LOOPBACK_DEBUG_
-                    printf("%d: sendto error. %ld\r\n", sn, ret);
+                    printf("%d: sendto error. %"PRId32"\r\n", sn, ret);
 #endif
                     return ret;
                 }
+                if (ret == SOCK_BUSY) { break; }
                 sentsize += ret; // Don't care SOCKERR_BUSY, because it is zero.
             }
         }
@@ -952,6 +967,7 @@ int32_t loopback_udpc(uint8_t sn, uint8_t* buf, uint8_t* destip, uint16_t destpo
     int32_t ret;
     uint16_t size = 0, sentsize = 0;
     static uint16_t any_port = 50000;
+    if (++any_port < 1024 || any_port > 65534) any_port = 50000;
     uint8_t addr_len;
 
 
@@ -978,7 +994,7 @@ int32_t loopback_udpc(uint8_t sn, uint8_t* buf, uint8_t* destip, uint16_t destpo
             printf("recv form[%d.%d.%d.%d][%d]: %s\n", destip[0], destip[1], destip[2], destip[3], destport, buf);
             if (ret <= 0) {
 #ifdef _LOOPBACK_DEBUG_
-                printf("%d: recvfrom error. %ld\r\n", sn, ret);
+                printf("%d: recvfrom error. %"PRId32"\r\n", sn, ret);
 #endif
                 return ret;
             }
@@ -988,7 +1004,7 @@ int32_t loopback_udpc(uint8_t sn, uint8_t* buf, uint8_t* destip, uint16_t destpo
                 ret = sendto(sn, buf + sentsize, size - sentsize, destip, destport, addr_len);
                 if (ret < 0) {
 #ifdef _LOOPBACK_DEBUG_
-                    printf("%d: sendto error. %ld\r\n", sn, ret);
+                    printf("%d: sendto error. %"PRId32"\r\n", sn, ret);
 #endif
                     return ret;
                 }

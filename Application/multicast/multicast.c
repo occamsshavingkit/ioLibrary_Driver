@@ -1,3 +1,4 @@
+#include <inttypes.h>
 #include "multicast.h"
 #include <stdio.h>
 #include "socket.h"
@@ -7,12 +8,9 @@
 int32_t multicast_loopback(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint16_t multicast_port) {
     int32_t  ret;
     uint16_t size, sentsize;
-    uint8_t destip[4];
-    uint16_t destport, port = 3000;
-#if 1
-    // 20231019 taylor
+    static uint8_t destip[4];
+    uint16_t destport, port = multicast_port;
     uint8_t addr_len;
-#endif
 
     switch (getSn_SR(sn)) {
     case SOCK_UDP :
@@ -32,7 +30,7 @@ int32_t multicast_loopback(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint
 #endif
             if (ret <= 0) {
 #ifdef _MULTICAST_DEBUG_
-                printf("%d: recvfrom error. %ld\r\n", sn, ret);
+                printf("%d: recvfrom error. %"PRId32"\r\n", sn, ret);
 #endif
                 return ret;
             }
@@ -51,10 +49,11 @@ int32_t multicast_loopback(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint
 #endif
                 if (ret < 0) {
 #ifdef _MULTICAST_DEBUG_
-                    printf("%d: sendto error. %ld\r\n", sn, ret);
+                    printf("%d: sendto error. %"PRId32"\r\n", sn, ret);
 #endif
                     return ret;
                 }
+                if (ret == SOCK_BUSY) { break; }
                 sentsize += ret; // Don't care SOCKERR_BUSY, because it is zero.
             }
         }
@@ -64,8 +63,8 @@ int32_t multicast_loopback(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint
 #ifdef _MULTICAST_DEBUG_
         printf("%d:Multicast Loopback start\r\n", sn);
 #endif
-        setSn_DIPR(0, multicast_ip);
-        setSn_DPORT(0, multicast_port);
+        setSn_DIPR(sn, multicast_ip);
+        setSn_DPORT(sn, multicast_port);
         if ((ret = socket(sn, Sn_MR_UDP, port, Sn_MR_MULTI)) != sn) {
             return ret;
         }
@@ -83,13 +82,12 @@ int32_t multicast_loopback(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint
 
 int32_t multicast_recv(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint16_t multicast_port) {
     int32_t  ret;
-    uint16_t size, port = 3000;
-    uint8_t destip[4];
-    uint16_t destport;
+    uint16_t size, port = multicast_port;
+    static uint8_t destip[4];
+    static uint16_t destport;
 #if 1
     // 20231019 taylor
     uint8_t addr_len;
-#endif
 
     switch (getSn_SR(sn)) {
     case SOCK_UDP :
@@ -109,17 +107,17 @@ int32_t multicast_recv(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint16_t
 #endif
             if (ret <= 0) {
 #ifdef _MULTICAST_DEBUG_
-                printf("%d: recvfrom error. %ld\r\n", sn, ret);
+                printf("%d: recvfrom error. %"PRId32"\r\n", sn, ret);
 #endif
                 return ret;
             }
             size = (uint16_t) ret;
 #ifdef _MULTICAST_DEBUG_
-            printf("\r\nrecv size : %d\r\n", size);
+            // printf("\r\nrecv size : %d\r\n", size);
             for (int i = 0; i < size; i++) {
-                printf("%c", buf[i]);
+                // printf("%c", buf[i]);
             }
-            printf("\r\n");
+            // printf("\r\n");
 #endif
         }
         break;
@@ -129,6 +127,14 @@ int32_t multicast_recv(uint8_t sn, uint8_t* buf, uint8_t* multicast_ip, uint16_t
 #endif
         setSn_DIPR(sn, multicast_ip);
         setSn_DPORT(sn, multicast_port);
+        {
+            uint8_t mac[6];
+            mac[0] = 0x01; mac[1] = 0x00; mac[2] = 0x5E;
+            mac[3] = multicast_ip[1] & 0x7F;
+            mac[4] = multicast_ip[2];
+            mac[5] = multicast_ip[3];
+            setSn_DHAR(sn, mac);
+        }
         if ((ret = socket(sn, Sn_MR_UDP, port, Sn_MR_MULTI)) != sn) {
             return ret;
         }
