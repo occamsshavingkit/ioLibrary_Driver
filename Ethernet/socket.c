@@ -215,6 +215,15 @@ static int8_t read_sn_rx_rsr(uint8_t sn, uint16_t *value) {
 #endif
 }
 
+static uint8_t sock_mode_cached_or_read(uint8_t sn) {
+    uint8_t mode = sock_mode[sn];
+
+    if (mode == 0U) {
+        mode = (uint8_t)getSn_MR(sn);
+    }
+    return mode;
+}
+
 static int8_t close_internal(uint8_t sn, uint8_t under_lock);
 static int8_t connect_IO_6(uint8_t sn, uint8_t *addr, uint16_t port,
                            uint8_t addrlen);
@@ -655,10 +664,6 @@ int8_t close(uint8_t sn) {
 
     CHECK_SOCKNUM();
     WIZCHIP_SOCK_LOCK(sn);
-    if (getSn_SR(sn) == SOCK_CLOSED) {
-        WIZCHIP_SOCK_UNLOCK(sn);
-        return SOCK_OK;
-    }
     ret = close_internal(sn, 1U);
     WIZCHIP_SOCK_UNLOCK(sn);
     return ret;
@@ -672,12 +677,12 @@ int8_t listen(uint8_t sn) {
 
     CHECK_SOCKNUM();
     WIZCHIP_SOCK_LOCK(sn);
-    if (getSn_SR(sn) != SOCK_INIT) {
-        ret = SOCKERR_SOCKINIT;
-        goto listen_done;
-    }
     if (sock_health[sn] == SOCK_FAULTED) {
         ret = SOCKERR_IO;
+        goto listen_done;
+    }
+    if (getSn_SR(sn) != SOCK_INIT) {
+        ret = SOCKERR_SOCKINIT;
         goto listen_done;
     }
     (void)wizchip_get_timeout_config(&timeout_config);
@@ -1581,7 +1586,7 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
     mr1 = getMR();
 #endif
 
-    switch ((mr = getSn_MR(sn)) & 0x0F) {
+    switch ((mr = sock_mode[sn]) & 0x0F) {
     case Sn_MR_UDP:
     case Sn_MR_IPRAW:
     case Sn_MR_IPRAW6:
@@ -1837,7 +1842,7 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
 #ifdef IPV6_AVAILABLE
     sock_remained_size[sn] = pack_len;
     sock_pack_info[sn] |= PACK_FIRST;
-    if ((getSn_MR(sn) & 0x03) == 0x02) { // Sn_MR_UDP4(0010), Sn_MR_UDP6(1010), Sn_MR_UDPD(1110)
+    if ((sock_mode[sn] & 0x03) == 0x02) { // Sn_MR_UDP4(0010), Sn_MR_UDP6(1010), Sn_MR_UDPD(1110)
         /* Read port number of PACKET INFO in SOCKETn RX buffer */
         if (port == 0) {
             ret = SOCKERR_ARG; goto rcvfr_done;
@@ -2082,6 +2087,7 @@ ss_done:
 
 int8_t getsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
     int8_t ret;
+    uint8_t mode;
     CHECK_SOCKNUM();
     if (arg == 0) {
         return SOCKERR_ARG;
@@ -2093,10 +2099,11 @@ int8_t getsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
     }
     switch (sotype) {
     case SO_FLAG:
+        mode = sock_mode_cached_or_read(sn);
 #ifdef IPV6_AVAILABLE
-        *(uint8_t*)arg = (getSn_MR(sn) & 0xF0) | (getSn_MR2(sn)) | (uint8_t)(sock_io_mode[sn] << 3);
+        *(uint8_t*)arg = (mode & 0xF0) | (getSn_MR2(sn)) | (uint8_t)(sock_io_mode[sn] << 3);
 #else
-        *(uint8_t*)arg = (getSn_MR(sn) & 0xF0) | (uint8_t)(sock_io_mode[sn] << 3);
+        *(uint8_t*)arg = (mode & 0xF0) | (uint8_t)(sock_io_mode[sn] << 3);
 #endif
         break;
     case SO_TTL:
@@ -2157,10 +2164,11 @@ int8_t getsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
         *(uint8_t*) arg = getSn_ESR(sn) & 0x07;
         break;
     case SO_REMAINSIZE:
-        if (getSn_MR(sn) == SOCK_CLOSED) {
+        mode = sock_mode_cached_or_read(sn);
+        if (mode == SOCK_CLOSED) {
             ret = SOCKERR_SOCKSTATUS; goto gs_done;
         }
-        if (getSn_MR(sn) & 0x01) {
+        if (mode & 0x01) {
             if (read_sn_rx_rsr(sn, (uint16_t *)arg) != 0) {
                 ret = SOCKERR_IO; goto gs_done;
             }
@@ -2169,21 +2177,23 @@ int8_t getsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
         }
         break;
     case SO_PACKINFO:
-        if (getSn_MR(sn) == SOCK_CLOSED) {
+        mode = sock_mode_cached_or_read(sn);
+        if (mode == SOCK_CLOSED) {
             ret = SOCKERR_SOCKSTATUS; goto gs_done;
         }
-        if (getSn_MR(sn) & 0x01) {
+        if (mode & 0x01) {
             ret = SOCKERR_SOCKMODE; goto gs_done;
         } else {
             *(uint8_t*)arg = sock_pack_info[sn];
         }
         break;
     case SO_MODE:
-        *(uint8_t*) arg = 0x0F & getSn_MR(sn);
+        *(uint8_t*) arg = 0x0F & sock_mode_cached_or_read(sn);
         break;
 #else
     case SO_REMAINSIZE:
-        if ((getSn_MR(sn) & 0x0F) == Sn_MR_TCP) {
+        mode = sock_mode_cached_or_read(sn);
+        if ((mode & 0x0F) == Sn_MR_TCP) {
             if (read_sn_rx_rsr(sn, (uint16_t *)arg) != 0) {
                 ret = SOCKERR_IO; goto gs_done;
             }
@@ -2194,7 +2204,7 @@ int8_t getsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
     case SO_PACKINFO  :
         //CHECK_SOCKMODE(Sn_MR_TCP);
 #if _WIZCHIP_ != 5300
-        if ((getSn_MR(sn) & 0x0F) == Sn_MR_TCP) {
+        if ((sock_mode_cached_or_read(sn) & 0x0F) == Sn_MR_TCP) {
             ret = SOCKERR_SOCKMODE; goto gs_done;
         }
 #endif
