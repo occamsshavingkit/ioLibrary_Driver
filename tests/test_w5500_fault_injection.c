@@ -24,6 +24,8 @@ static unsigned int fake_tx_fsr_samples;
 static unsigned int fake_rx_rsr_samples;
 static unsigned int fake_tx_fsr_reads;
 static unsigned int fake_rx_rsr_reads;
+static unsigned int fake_sn_mr_reads;
+static unsigned int fake_sn_sr_reads;
 static uint8_t fake_tx_fsr_unstable;
 static uint8_t fake_rx_rsr_unstable;
 static uint16_t fake_fault_addr;
@@ -135,6 +137,7 @@ static uint8_t fake_spi_read(void)
 
     if (sn >= 0 && spi_addr == 0x0000u) {
         value = fake_sn_mode;
+        ++fake_sn_mr_reads;
     } else if (sn >= 0 && spi_addr == 0x0001u) {
         if (fake_sn_command != 0u &&
             fake_now_us >= fake_command_accept_at_us) {
@@ -145,6 +148,7 @@ static uint8_t fake_spi_read(void)
         value = fake_sn_ir;
     } else if (sn >= 0 && spi_addr == 0x0003u) {
         value = fake_sn_status;
+        ++fake_sn_sr_reads;
     } else if (spi_block == WIZCHIP_CREG_BLOCK &&
                spi_addr >= 0x000Fu && spi_addr <= 0x0012u) {
         value = (spi_addr == 0x000Fu) ? 192u : 1u;
@@ -291,6 +295,8 @@ static void reset_register_fake(void)
     fake_rx_rsr_samples = 0u;
     fake_tx_fsr_reads = 0u;
     fake_rx_rsr_reads = 0u;
+    fake_sn_mr_reads = 0u;
+    fake_sn_sr_reads = 0u;
     fake_tx_fsr_unstable = 0u;
     fake_rx_rsr_unstable = 0u;
     fake_fault_addr = 0u;
@@ -318,6 +324,13 @@ static void reset_register_fake(void)
         (void)wizchip_recover();
     }
     wizchip_clear_last_error();
+}
+
+static void enable_fake_fault(uint16_t address)
+{
+    fake_fault_addr = address;
+    fake_fault_enabled = 1u;
+    wizchip_invalidate_transport_cache();
 }
 
 static void test_time_callback_registration(void)
@@ -439,14 +452,12 @@ static void test_register_faults_return_io_error(void)
     uint16_t value = 0u;
 
     reset_register_fake();
-    fake_fault_addr = 0x0020u;
-    fake_fault_enabled = 1u;
+    enable_fake_fault(0x0020u);
     CHECK(getSn_TX_FSR_checked(0u, &value) == SOCKERR_IO,
           "Sn_TX_FSR transport failure returns SOCKERR_IO");
 
     reset_register_fake();
-    fake_fault_addr = 0x0026u;
-    fake_fault_enabled = 1u;
+    enable_fake_fault(0x0026u);
     CHECK(getSn_RX_RSR_checked(0u, &value) == SOCKERR_IO,
           "Sn_RX_RSR transport failure returns SOCKERR_IO");
 }
@@ -460,8 +471,7 @@ static void test_stable_zero_is_distinct_from_failure_zero(void)
 
     reset_register_fake();
     stable_status = getSn_TX_FSR_checked(0u, &stable_value);
-    fake_fault_addr = 0x0020u;
-    fake_fault_enabled = 1u;
+    enable_fake_fault(0x0020u);
     failed_status = getSn_TX_FSR_checked(0u, &failed_value);
     CHECK(stable_status == SOCK_OK && stable_value == 0u,
           "stable zero Sn_TX_FSR is a successful read");
@@ -471,8 +481,7 @@ static void test_stable_zero_is_distinct_from_failure_zero(void)
     reset_register_fake();
     stable_value = UINT16_MAX;
     stable_status = getSn_RX_RSR_checked(0u, &stable_value);
-    fake_fault_addr = 0x0026u;
-    fake_fault_enabled = 1u;
+    enable_fake_fault(0x0026u);
     failed_status = getSn_RX_RSR_checked(0u, &failed_value);
     CHECK(stable_status == SOCK_OK && stable_value == 0u,
           "stable zero Sn_RX_RSR is a successful read");
@@ -625,6 +634,96 @@ static void test_open_succeeds_within_deadline_for_valid_mode(void)
           "valid OPEN completes within operation deadline");
 }
 
+static void test_open_socket_mode_queries_use_cached_state(void)
+{
+    uint8_t flags = 0u;
+    uint8_t pack_info = 0u;
+    uint16_t remained_size = UINT16_MAX;
+
+    prepare_open_listen_test();
+    CHECK(socket(0u, Sn_MR_UDP, 5000u,
+                 (uint8_t)(SF_MULTI_ENABLE | SF_IO_NONBLOCK)) == 0,
+          "UDP socket opens with cached hardware and I/O flags");
+    fake_sn_mr_reads = 0u;
+
+    CHECK(getsockopt(0u, SO_FLAG, &flags) == SOCK_OK,
+          "SO_FLAG succeeds for an open socket");
+    CHECK(flags == (uint8_t)(SF_MULTI_ENABLE |
+                             (SOCK_IO_NONBLOCK << 3)),
+          "SO_FLAG combines cached Sn_MR and I/O mode");
+    CHECK(getsockopt(0u, SO_REMAINSIZE, &remained_size) == SOCK_OK,
+          "SO_REMAINSIZE succeeds for an open UDP socket");
+    CHECK(remained_size == 0u,
+          "SO_REMAINSIZE returns the cached datagram remainder");
+    CHECK(getsockopt(0u, SO_PACKINFO, &pack_info) == SOCK_OK,
+          "SO_PACKINFO succeeds for an open UDP socket");
+    CHECK(fake_sn_mr_reads == 0u,
+          "mode-derived socket options perform no Sn_MR reads when cached");
+}
+
+static void test_closed_socket_mode_query_reads_hardware(void)
+{
+    uint8_t flags = 0u;
+
+    reset_register_fake();
+    fake_sn_mode = SF_MULTI_ENABLE;
+    fake_sn_mr_reads = 0u;
+
+    CHECK(getsockopt(0u, SO_FLAG, &flags) == SOCK_OK,
+          "SO_FLAG succeeds when no socket mode is cached");
+    CHECK(flags == SF_MULTI_ENABLE,
+          "SO_FLAG preserves an uncached hardware flag value");
+    CHECK(fake_sn_mr_reads == 1u,
+          "SO_FLAG falls back to Sn_MR when the cache is invalid");
+}
+
+static void test_recvfrom_mode_check_uses_cached_state(void)
+{
+    uint8_t payload = 0u;
+    uint8_t address[4] = {0u};
+    uint16_t port = 0u;
+
+    prepare_open_listen_test();
+    CHECK(socket(0u, Sn_MR_UDP, 5000u, SF_IO_NONBLOCK) == 0,
+          "nonblocking UDP socket opens for recvfrom cache test");
+    fake_sn_mr_reads = 0u;
+
+    CHECK(recvfrom(0u, &payload, 1u, address, &port) == SOCK_BUSY,
+          "empty nonblocking recvfrom reports busy");
+    CHECK(fake_sn_mr_reads == 0u,
+          "recvfrom performs no Sn_MR read when the mode cache is valid");
+}
+
+static void test_close_avoids_duplicate_status_read(void)
+{
+    prepare_open_listen_test();
+    CHECK(socket(0u, Sn_MR_UDP, 5000u, 0u) == 0,
+          "UDP socket opens for close status-read test");
+    fake_sn_sr_reads = 0u;
+
+    CHECK(close(0u) == SOCK_OK, "close succeeds for an open socket");
+    CHECK(fake_sn_sr_reads == 2u,
+          "close reads Sn_SR only for pre-close and completion checks");
+}
+
+static void test_faulted_listen_skips_status_read(void)
+{
+    int8_t result;
+
+    prepare_open_listen_test();
+    fake_delayed_command = Sn_CR_OPEN;
+    fake_command_accept_delay_us = 10000u;
+    CHECK(socket(0u, Sn_MR_TCP, 5000u, 0u) == SOCKERR_DEADLINE,
+          "failed OPEN establishes a faulted socket");
+    fake_sn_sr_reads = 0u;
+
+    result = listen(0u);
+    CHECK(result == SOCKERR_IO,
+          "listen rejects a faulted socket before inspecting hardware state");
+    CHECK(fake_sn_sr_reads == 0u,
+          "faulted listen performs no Sn_SR read");
+}
+
 static void prepare_close_fault_test(void)
 {
     wizchip_timeout_config_t config = {5000u, 100200u, 5000u};
@@ -734,6 +833,11 @@ int main(void)
     test_unaccepted_sn_cr_expires_deadline_and_returns_error();
     test_sn_sr_transitions_from_init_to_listen_within_deadline();
     test_open_succeeds_within_deadline_for_valid_mode();
+    test_open_socket_mode_queries_use_cached_state();
+    test_closed_socket_mode_query_reads_hardware();
+    test_recvfrom_mode_check_uses_cached_state();
+    test_close_avoids_duplicate_status_read();
+    test_faulted_listen_skips_status_read();
     test_close_of_already_closed_socket_is_idempotent();
     test_failed_close_is_bounded_and_preserves_state();
     test_faulted_socket_rejects_retry_until_chip_reset();
