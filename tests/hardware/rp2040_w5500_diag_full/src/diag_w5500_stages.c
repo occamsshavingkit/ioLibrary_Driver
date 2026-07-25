@@ -418,6 +418,7 @@ static diag_stage_result_t run_pointer_stage(diag_stage_context_t *context,
 {
     uint8_t socket_status = read_byte(context, stage, DIAG_PHASE_SAVE,
                                       Sn_SR(DIAG_SOCKET));
+     diag_stage_result_t result = DIAG_STAGE_FAIL;
     uint16_t saved_tx;
     uint16_t saved_rx;
     uint16_t actual_tx;
@@ -429,6 +430,19 @@ static diag_stage_result_t run_pointer_stage(diag_stage_context_t *context,
         diag_stage_set_details(
             context, "code=socket-state expected=%02X actual=%02X",
             (unsigned int)SOCK_CLOSED, (unsigned int)socket_status);
+        return DIAG_STAGE_FAIL;
+    }
+
+    WIZCHIP_WRITE(Sn_MR(DIAG_SOCKET), Sn_MR_UDP);
+    WIZCHIP_WRITE(Sn_PORT(DIAG_SOCKET), (49001u >> 8) & 0xFFu);
+    WIZCHIP_WRITE(WIZCHIP_OFFSET_INC(Sn_PORT(DIAG_SOCKET), 1),
+                  49001u & 0xFFu);
+    WIZCHIP_WRITE(Sn_CR(DIAG_SOCKET), Sn_CR_OPEN);
+    while (WIZCHIP_READ(Sn_CR(DIAG_SOCKET)) != 0) {}
+    uint8_t sr = WIZCHIP_READ(Sn_SR(DIAG_SOCKET));
+    if (sr != SOCK_UDP) {
+        diag_stage_set_details(context,
+            "code=socket-open-direct sr=0x%02X", (unsigned)sr);
         return DIAG_STAGE_FAIL;
     }
 
@@ -452,21 +466,25 @@ static diag_stage_result_t run_pointer_stage(diag_stage_context_t *context,
     if (restored_tx != saved_tx || restored_rx != saved_rx) {
         recover_unverified_restoration(context, stage);
         diag_stage_set_details(context, "code=restore");
-        return DIAG_STAGE_FAIL;
+        goto cleanup;
     }
     if (actual_tx != DIAG_TX_WR_PATTERN) {
         diag_stage_set_details(
             context, "code=readback pointer=tx expected=%04X actual=%04X",
             (unsigned int)DIAG_TX_WR_PATTERN, (unsigned int)actual_tx);
-        return DIAG_STAGE_FAIL;
+        goto cleanup;
     }
     if (actual_rx != DIAG_RX_RD_PATTERN) {
         diag_stage_set_details(
             context, "code=readback pointer=rx expected=%04X actual=%04X",
             (unsigned int)DIAG_RX_RD_PATTERN, (unsigned int)actual_rx);
-        return DIAG_STAGE_FAIL;
+        goto cleanup;
     }
-    return DIAG_STAGE_PASS;
+    result = DIAG_STAGE_PASS;
+
+cleanup:
+    (void)close(DIAG_SOCKET);
+    return result;
 }
 
 diag_stage_result_t diag_stage_pointer_sequential(diag_stage_context_t *context)
