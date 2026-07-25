@@ -374,6 +374,7 @@ static wizchip_state_t chip_state = WIZCHIP_STATE_UNINIT;
 static int8_t chip_last_error;
 static wizchip_time_cbs_t time_cbs;
 static wizchip_wait_hook_fn wait_hook;
+static uint8_t wizchip_transport_healthy = 0;
 static uint32_t configured_timeout_us;
 static uint32_t poll_counter;
 static wizchip_timeout_config_t timeout_config = {
@@ -420,7 +421,9 @@ uint8_t wizchip_timeout_config_set(uint32_t timeout_us) {
     if (timeout_us == 0u) {
         return 1u;
     }
+    WIZCHIP_GLOBAL_LOCK();
     configured_timeout_us = timeout_us;
+    WIZCHIP_GLOBAL_UNLOCK();
     return 0u;
 }
 
@@ -558,6 +561,10 @@ void wizchip_clear_spi_error(void) {
     }
 }
 
+void wizchip_invalidate_transport_cache(void) {
+    wizchip_transport_healthy = 0;
+}
+
 static int8_t wizchip_spi_fault(void) {
     chip_state = WIZCHIP_STATE_FAULTED;
     chip_last_error = SOCKERR_IO;
@@ -590,10 +597,20 @@ int8_t wizchip_read8_checked_out(uint32_t addr, uint8_t *out) {
     wizchip_spi_write_header(addr, _W5500_SPI_READ_);
     *out = WIZCHIP.IF.SPI._read_byte();
     WIZCHIP.CS._deselect();
+#ifdef WIZCHIP_SAFE_SPI
     if (WIZCHIP_SPI_BUSY_CHECK() || WIZCHIP_SPI_ERROR_CHECK()) {
         WIZCHIP.CRIS._exit();
         return wizchip_spi_fault();
     }
+#else
+    if (!wizchip_transport_healthy) {
+        if (WIZCHIP_SPI_BUSY_CHECK() || WIZCHIP_SPI_ERROR_CHECK()) {
+            WIZCHIP.CRIS._exit();
+            return wizchip_spi_fault();
+        }
+        wizchip_transport_healthy = 1;
+    }
+#endif
     WIZCHIP.CRIS._exit();
     return 0;
 }
@@ -615,6 +632,7 @@ int8_t wizchip_write8_checked(uint32_t addr, uint8_t data) {
     frame[3] = data;
 
     WIZCHIP.CRIS._enter();
+    wizchip_transport_healthy = 0;
     wizchip_clear_spi_error();
     WIZCHIP.CS._select();
     if (WIZCHIP.IF.SPI._write_burst) {
@@ -626,10 +644,12 @@ int8_t wizchip_write8_checked(uint32_t addr, uint8_t data) {
         WIZCHIP.IF.SPI._write_byte(frame[3]);
     }
     WIZCHIP.CS._deselect();
+#ifdef WIZCHIP_SAFE_SPI
     if (WIZCHIP_SPI_BUSY_CHECK() || WIZCHIP_SPI_ERROR_CHECK()) {
         WIZCHIP.CRIS._exit();
         return wizchip_spi_fault();
     }
+#endif
     WIZCHIP.CRIS._exit();
     return 0;
 }
@@ -656,10 +676,20 @@ int8_t wizchip_read_buf_checked(uint32_t addr, uint8_t *buf, uint16_t len) {
         }
     }
     WIZCHIP.CS._deselect();
+#ifdef WIZCHIP_SAFE_SPI
     if (WIZCHIP_SPI_BUSY_CHECK() || WIZCHIP_SPI_ERROR_CHECK()) {
         WIZCHIP.CRIS._exit();
         return wizchip_spi_fault();
     }
+#else
+    if (!wizchip_transport_healthy) {
+        if (WIZCHIP_SPI_BUSY_CHECK() || WIZCHIP_SPI_ERROR_CHECK()) {
+            WIZCHIP.CRIS._exit();
+            return wizchip_spi_fault();
+        }
+        wizchip_transport_healthy = 1;
+    }
+#endif
     WIZCHIP.CRIS._exit();
     return 0;
 }
@@ -676,6 +706,7 @@ int8_t wizchip_write_buf_checked(uint32_t addr, const uint8_t *buf,
     }
 
     WIZCHIP.CRIS._enter();
+    wizchip_transport_healthy = 0;
     wizchip_clear_spi_error();
     WIZCHIP.CS._select();
     wizchip_spi_write_header(addr, _W5500_SPI_WRITE_);
@@ -687,10 +718,12 @@ int8_t wizchip_write_buf_checked(uint32_t addr, const uint8_t *buf,
         }
     }
     WIZCHIP.CS._deselect();
+#ifdef WIZCHIP_SAFE_SPI
     if (WIZCHIP_SPI_BUSY_CHECK() || WIZCHIP_SPI_ERROR_CHECK()) {
         WIZCHIP.CRIS._exit();
         return wizchip_spi_fault();
     }
+#endif
     WIZCHIP.CRIS._exit();
     return 0;
 }
@@ -1442,18 +1475,15 @@ int8_t wizchip_init(uint8_t* txsize, uint8_t* rxsize) {
 #endif
         }
     }
-    tmp = wizchip_refresh_socket_caches();
-    if (tmp != 0) goto wizchip_init_done;
 #if _WIZCHIP_ == W5500
-    for (i = 0; i < _WIZCHIP_SOCK_NUM_; ++i) {
-        if ((txsize && wizchip_txmax_cache[i] !=
-                       (uint16_t)txsize[i] * 1024U) ||
-            (rxsize && wizchip_rxmax_cache[i] !=
-                       (uint16_t)rxsize[i] * 1024U)) {
+    {
+        uint8_t version;
+        tmp = wizchip_read8_checked_out(VERSIONR, &version);
+        if (tmp == 0 && version != 0x04U) {
             tmp = -1;
-            goto wizchip_init_done;
         }
     }
+    if (tmp != 0) goto wizchip_init_done;
 #endif
 #if _WIZCHIP_ == W5500
     {
