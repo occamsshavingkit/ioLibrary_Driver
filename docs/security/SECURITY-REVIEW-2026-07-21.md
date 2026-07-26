@@ -416,3 +416,14 @@ All findings are **already fixed** in this diff. The following are suggestions f
 | No-impact (dead code, cosmetics) | 5 | REMOVED |
 
 **Net effect**: 14 vulnerability vectors eliminated. Zero new vectors introduced. Complete hardware regression passes. All 4 test suites pass. All 3 audit models concur.
+
+---
+## Postscript (2026-07-25)
+
+All 19 corrective categories from the `005-fix-audit-findings` feature have been
+validated as PASS against clean candidates (root `39d59dc`, transport `119368b`).
+Evidence: host 30/30, ASan+UBSan 10/10, TSan 10/10, transport CTest 3/3,
+cppcheck 0 defects, cross-compile ARM PASS, hardware benchmark -Os verified at
+31.25 & 41.67 MHz, hardware diagnostic 9/12 stages including callback-layout fix.
+The findings in this review (lock leaks, integer underflow, unbounded spin, race
+conditions) are confirmed resolved.
