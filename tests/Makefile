@@ -20,6 +20,13 @@ TEST_PHY = test_w5500_phy
 TEST_FLAGS = test_w5500_raw_flags
 TEST_CONFIG = test_w5500_configuration
 TEST_SPI_CONTRACT = test_w5500_spi_contract
+TEST_BENCH = bench_spi_reads
+
+BENCH_CFLAGS = $(filter-out -O% -flto,$(CFLAGS))
+BENCH_OS = $(BUILD_DIR)/bench_spi_reads-Os
+BENCH_O2 = $(BUILD_DIR)/bench_spi_reads
+BENCH_O2_LTO = $(BUILD_DIR)/bench_spi_reads-O2-lto
+BENCH_BINARIES = $(BENCH_OS) $(BENCH_O2) $(BENCH_O2_LTO)
 
 CORE_TESTS = $(TEST_ATOMIC) $(TEST_CORRECT) $(TEST_SANITIZER) \
              $(TEST_SPI_CONTRACT)
@@ -27,14 +34,14 @@ NEW_TESTS = $(TEST_CONCURRENCY) $(TEST_FAULT) $(TEST_PHY) \
             $(TEST_FLAGS) $(TEST_CONFIG)
 ALL_TESTS = $(CORE_TESTS) $(NEW_TESTS)
 
-.PHONY: all test test-us1 sanitize tsan static-analysis cross-compile verify-binaries clean T010
-.PHONY: $(ALL_TESTS)
+.PHONY: all test test-us1 sanitize tsan static-analysis cross-compile verify-binaries clean T010 bench
+.PHONY: $(ALL_TESTS) $(TEST_BENCH)
 
 all: $(ALL_TESTS:%=$(BUILD_DIR)/%)
 
 define CORE_RULE
 $(BUILD_DIR)/$(1): $(1).c $(ETH_SRCS) $(SUPPORT_SRC) | $(BUILD_DIR)
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(1).c $(ETH_SRCS) $(SUPPORT_SRC) $(LDLIBS) -o $$@
+	$(CC) $(CPPFLAGS) $$(CFLAGS) $(1).c $(ETH_SRCS) $(SUPPORT_SRC) $(LDLIBS) -o $$@
 endef
 
 define NEW_RULE
@@ -47,9 +54,32 @@ $(foreach t,$(NEW_TESTS),$(eval $(call NEW_RULE,$(t))))
 
 $(foreach t,$(ALL_TESTS),$(eval $(t): $$(BUILD_DIR)/$(t)))
 
+$(BENCH_OS): bench_spi_reads.c $(ETH_SRCS) $(SUPPORT_SRC) | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(BENCH_CFLAGS) -Os \
+		-DBENCH_OPT_LABEL='"-Os"' \
+		bench_spi_reads.c $(ETH_SRCS) $(SUPPORT_SRC) $(LDLIBS) -o $@
+
+$(BUILD_DIR)/bench_spi_reads: bench_spi_reads.c $(ETH_SRCS) $(SUPPORT_SRC) | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(BENCH_CFLAGS) -O2 \
+		-DBENCH_OPT_LABEL='"-O2"' \
+		bench_spi_reads.c $(ETH_SRCS) $(SUPPORT_SRC) $(LDLIBS) -o $@
+
+$(BENCH_O2_LTO): bench_spi_reads.c $(ETH_SRCS) $(SUPPORT_SRC) | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(BENCH_CFLAGS) -O2 -flto \
+		-DBENCH_OPT_LABEL='"-O2 -flto"' \
+		bench_spi_reads.c $(ETH_SRCS) $(SUPPORT_SRC) $(LDLIBS) -o $@
+
+bench: $(BENCH_BINARIES)
+	@for binary in $(BENCH_BINARIES); do \
+		"$$binary" || exit $$?; \
+	done
+
+$(TEST_BENCH): bench
+
 T010: $(TEST_FAULT)
 
 $(BUILD_DIR)/$(TEST_CONCURRENCY): LDLIBS += -lpthread
+$(BUILD_DIR)/$(TEST_SANITIZER): override CFLAGS += -DWIZCHIP_SAFE_SPI
 
 test-us1: $(BUILD_DIR)/$(TEST_FAULT) $(BUILD_DIR)/$(TEST_CONCURRENCY)
 	$(BUILD_DIR)/$(TEST_FAULT)

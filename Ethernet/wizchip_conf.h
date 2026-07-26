@@ -129,6 +129,7 @@ void wizchip_clear_last_error(void);
 int8_t wizchip_recover(void);
 uint8_t wizchip_get_spi_error(void);
 void wizchip_clear_spi_error(void);
+void wizchip_invalidate_transport_cache(void);
 
 uint8_t wizchip_read8_checked(uint32_t addr);
 int8_t wizchip_write8_checked(uint32_t addr, uint8_t data);

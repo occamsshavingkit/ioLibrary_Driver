@@ -1,181 +1,142 @@
-# W5500 Audit Findings — Resolved
+# W5500 Audit Finding Reconciliation
 
-**Fork**: `occamsshavingkit/ioLibrary_Driver` | **Branch**: `all-audit-fixes`
-**Audit snapshot**: `Wiznet/ioLibrary_Driver` commit `39fae86`
-**Audit date**: 2026-07-18 | **Resolution date**: 2026-07-18
+**Feature branch**: `005-fix-audit-findings`
 
-All 49 findings resolved. Individual PRs submitted for P0; P1-P3 branches on fork ready for submission when upstream accepts outstanding PRs. Full resolution detail in commit messages and branch descriptions.
+**Reconciled at**: 2026-07-24T00:44:09Z
 
-## Resolution Summary
+**Canonical record**: [Feature 005 release evidence](specs/005-fix-audit-findings/evidence.md)
 
-| Priority | Count | Type | Status |
-|----------|-------|------|--------|
-| P0 | 5 | Code | PRs #180–184 submitted to Wiznet/ioLibrary_Driver |
-| P1 | 16 | 12 code + 4 docs | 16 branches on fork |
-| P2 | 16 | 16 code | 16 branches on fork |
-| P3 | 10 | 7 code + 3 docs | 10 branches on fork |
-| Arch | 4 | Full implementation | LOCK infra, SPI status, IRQ model, bus mutex — on all-audit-fixes |
+**Evidence contract**: [Verification evidence contract](specs/005-fix-audit-findings/contracts/verification-evidence.md)
 
-## Host-Side Verification Results
+This document supersedes the 2026-07-18 summary that reported 49 findings as
+resolved from branch descriptions and model-only checks. The current audit
+baseline contains 19 corrective categories and reconciles all 73 historical
+findings. The canonical evidence matrix, not this summary, is authoritative.
 
-| ID | Test | Result |
-|----|------|--------|
-| VER-001 | Strict C99 compile (GCC -Wall -Wextra -Wpedantic -Werror) | 5 issues found (3 fixed, 2 cosmetic remain) |
-| VER-007 | libFuzzer packet parser (500K iterations, ASan+UBSan) | Clean — no sanitizer abort |
-| VER-008 | UBSan on union type-punning (AUD-003) | Confirmed: mismatched call returns wrong value |
-| VER-009 | cppcheck static analysis | Cosmetic only — no new defects |
+No finding is currently release-ready. All `CUR-001` through `CUR-019` rows are
+`BLOCKED`, so no historical `SUPERSEDED` row is claimed as resolved. Historical
+rows remain release blockers until their replacement `CUR` evidence passes.
 
-## P0 — Deployment Blockers
+## Current Evidence Status
 
-### [x] AUD-001: Prevent out-of-bounds termination in the W5500 UDP client loopback
-**Resolution**: Moved `ret <= 0` check before `buf[ret] = 0x00` in `loopback_udpc()`. PR #180.
+| Current finding | Result | Current evidence | Blocking condition |
+|-----------------|--------|------------------|--------------------|
+| `CUR-001` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`root-gcc.log`, `root-tsan.log`) | Clean retained host and TSan evidence is pending. |
+| `CUR-002` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`root-gcc.log`, `root-tsan.log`) | Clean retained lock and validation evidence is pending. |
+| `CUR-003` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`root-tsan.log`, `cbmc.log`) | Clean TSan and production-linked CBMC evidence is pending. |
+| `CUR-004` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`root-gcc.log`) | Clean retained deadline and fault-injection evidence is pending. |
+| `CUR-005` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`transport-ctest.log`) | Clean retained transport evidence is pending. |
+| `CUR-006` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`transport-ctest.log`) | Clean 100-cycle resource evidence is pending. |
+| `CUR-007` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`root-gcc.log`, `transport-ctest.log`) | Clean root and transport error-propagation evidence is pending. |
+| `CUR-008` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`transport-ctest.log`) | Clean retained lifecycle evidence is pending. |
+| `CUR-009` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`transport-ctest.log`, `hardware-diagnostic.log`) | **Hardware unavailable:** no RP2040/W5500 diagnostic USB target or latency-measurement facility was detected. |
+| `CUR-010` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`root-gcc.log`, `transport-ctest.log`) | Clean callback-layout evidence is pending. |
+| `CUR-011` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`root-gcc.log`, `verify-binaries.log`, `hardware-diagnostic.log`) | **Hardware unavailable:** no RP2040/W5500 target or physical-link control facility was detected. |
+| `CUR-012` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`root-gcc.log`) | Clean exhaustive flag-matrix evidence is pending. |
+| `CUR-013` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`root-gcc.log`) | Clean configuration-coherence evidence is pending. |
+| `CUR-014` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`transport-ctest.log`, `hardware-diagnostic.log`) | **Hardware unavailable:** no RP2040/W5500 diagnostic USB target was detected. |
+| `CUR-015` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`root-gcc.log`, `transport-ctest.log`) | Clean public-interface evidence is pending. |
+| `CUR-016` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`root-gcc.log`, `root-sanitize.log`, `cross-compile.log`, `hardware-smoke.log`, `hardware-diagnostic.log`) | **Hardware unavailable:** no RP2040/W5500 USB target was detected. Clean retained host and build logs are also pending. |
+| `CUR-017` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`cbmc.log`) | A retained clean-candidate production-linked CBMC report is pending. |
+| `CUR-018` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`static-analysis.log`, `cross-compile.log`, `verify-binaries.log`, `hardware-smoke.log`, `hardware-diagnostic.log`) | **Hardware unavailable:** no RP2040/W5500 USB target was detected. Audit-claim reconciliation is also pending. |
+| `CUR-019` | **BLOCKED** | [Matrix](specs/005-fix-audit-findings/evidence.md) (`evidence-validator.log`) | Replacement `CUR` rows have not passed, so historical supersessions are not complete. |
 
-### [x] AUD-002: Correct the `SO_KEEPALIVEAUTO` getter width
-**Resolution**: Changed `uint16_t*` to `uint8_t*` in getsockopt(). PR #181.
+### Hardware-Unavailable Blockers
 
-### [x] AUD-003: Initialize the active SPI callback member instead of incompatible BUS callbacks
-**Resolution**: Added `#if (_WIZCHIP_IO_MODE_ & _WIZCHIP_IO_MODE_SPI_)` conditional in WIZCHIP initializer, initiating `.IF.SPI` with correct stubs. PR #182.
+Physical execution remains unavailable for `CUR-009`, `CUR-011`, `CUR-014`,
+`CUR-016`, and `CUR-018`. These rows require RP2040/W5500 smoke or full
+diagnostic evidence and remain `BLOCKED`; host or model results are not
+substitutes. The other current rows are also `BLOCKED` for the pending clean
+host, sanitizer, TSan, CBMC, static-analysis, cross-build, binary, transport, or
+evidence-validation artifacts stated above.
 
-### [x] AUD-004: Make nonblocking W5500 TCP recv() consume available data
-**Resolution**: Swapped `recvsize != 0` and nonblocking-mode checks in the W5500 `#else` branch, matching IPv6 branch ordering. PR #183.
+## Historical Findings
 
-### [x] AUD-005: Stop ctlwizchip() from dereferencing absent arguments
-**Resolution**: Removed unconditional `uint8_t tmp = *(uint8_t*)arg`. Added guarded dereferences with NULL checks inside cases. PR #184.
+Every historical result below is taken from the [canonical evidence
+matrix](specs/005-fix-audit-findings/evidence.md). `SUPERSEDED` means the old
+finding is now governed by the named current corrective category. It does not
+mean resolved: every named replacement is presently `BLOCKED`.
 
-## P1 — Reliability, Availability, and Concurrency
+| Historical finding | Reconciled outcome | Replacement status |
+|--------------------|--------------------|--------------------|
+| `AUD-001` | **SUPERSEDED** by `CUR-015` | `CUR-015` BLOCKED |
+| `AUD-002` | **SUPERSEDED** by `CUR-015` | `CUR-015` BLOCKED |
+| `AUD-003` | **SUPERSEDED** by `CUR-010` | `CUR-010` BLOCKED |
+| `AUD-004` | **SUPERSEDED** by `CUR-007` | `CUR-007` BLOCKED |
+| `AUD-005` | **SUPERSEDED** by `CUR-015` | `CUR-015` BLOCKED |
+| `AUD-006` | **SUPERSEDED** by `CUR-012` | `CUR-012` BLOCKED |
+| `AUD-007` | **SUPERSEDED** by `CUR-004` | `CUR-004` BLOCKED |
+| `AUD-008` | **SUPERSEDED** by `CUR-009` | `CUR-009` BLOCKED (hardware unavailable) |
+| `AUD-009` | **SUPERSEDED** by `CUR-010` | `CUR-010` BLOCKED |
+| `AUD-010` | **SUPERSEDED** by `CUR-005` | `CUR-005` BLOCKED |
+| `AUD-011` | **SUPERSEDED** by `CUR-002` | `CUR-002` BLOCKED |
+| `AUD-012` | **SUPERSEDED** by `CUR-014` | `CUR-014` BLOCKED (hardware unavailable) |
+| `AUD-013` | **SUPERSEDED** by `CUR-013` | `CUR-013` BLOCKED |
+| `AUD-014` | **SUPERSEDED** by `CUR-007` | `CUR-007` BLOCKED |
+| `AUD-015` | **SUPERSEDED** by `CUR-004` | `CUR-004` BLOCKED |
+| `AUD-016` | **SUPERSEDED** by `CUR-004` | `CUR-004` BLOCKED |
+| `AUD-017` | **SUPERSEDED** by `CUR-004` | `CUR-004` BLOCKED |
+| `AUD-018` | **SUPERSEDED** by `CUR-015` | `CUR-015` BLOCKED |
+| `AUD-019` | **SUPERSEDED** by `CUR-015` | `CUR-015` BLOCKED |
+| `AUD-020` | **SUPERSEDED** by `CUR-015` | `CUR-015` BLOCKED |
+| `AUD-021` | **SUPERSEDED** by `CUR-015` | `CUR-015` BLOCKED |
+| `AUD-022` | **SUPERSEDED** by `CUR-013` | `CUR-013` BLOCKED |
+| `AUD-023` | **SUPERSEDED** by `CUR-011` | `CUR-011` BLOCKED (hardware unavailable) |
+| `AUD-024` | **SUPERSEDED** by `CUR-012` | `CUR-012` BLOCKED |
+| `AUD-025` | **SUPERSEDED** by `CUR-003` | `CUR-003` BLOCKED |
+| `AUD-026` | **SUPERSEDED** by `CUR-016` | `CUR-016` BLOCKED (hardware unavailable and clean logs pending) |
+| `AUD-027` | **SUPERSEDED** by `CUR-010` | `CUR-010` BLOCKED |
+| `AUD-028` | **SUPERSEDED** by `CUR-016` | `CUR-016` BLOCKED (hardware unavailable and clean logs pending) |
+| `AUD-029` | **SUPERSEDED** by `CUR-015` | `CUR-015` BLOCKED |
+| `AUD-030` | **SUPERSEDED** by `CUR-013` | `CUR-013` BLOCKED |
+| `AUD-031` | **SUPERSEDED** by `CUR-013` | `CUR-013` BLOCKED |
+| `AUD-032` | **SUPERSEDED** by `CUR-009` | `CUR-009` BLOCKED (hardware unavailable) |
+| `AUD-033` | **SUPERSEDED** by `CUR-013` | `CUR-013` BLOCKED |
+| `AUD-034` | **SUPERSEDED** by `CUR-004` | `CUR-004` BLOCKED |
+| `AUD-035` | **SUPERSEDED** by `CUR-014` | `CUR-014` BLOCKED (hardware unavailable) |
+| `AUD-036` | **SUPERSEDED** by `CUR-004` | `CUR-004` BLOCKED |
+| `AUD-037` | **SUPERSEDED** by `CUR-004` | `CUR-004` BLOCKED |
+| `AUD-038` | **SUPERSEDED** by `CUR-004` | `CUR-004` BLOCKED |
+| `AUD-039` | **SUPERSEDED** by `CUR-011` | `CUR-011` BLOCKED (hardware unavailable) |
+| `AUD-040` | **SUPERSEDED** by `CUR-013` | `CUR-013` BLOCKED |
+| `AUD-041` | **SUPERSEDED** by `CUR-013` | `CUR-013` BLOCKED |
+| `AUD-042` | **SUPERSEDED** by `CUR-015` | `CUR-015` BLOCKED |
+| `AUD-043` | **SUPERSEDED** by `CUR-015` | `CUR-015` BLOCKED |
+| `AUD-044` | **SUPERSEDED** by `CUR-004` | `CUR-004` BLOCKED |
+| `AUD-045` | **SUPERSEDED** by `CUR-015` | `CUR-015` BLOCKED |
+| `AUD-046` | **SUPERSEDED** by `CUR-013` | `CUR-013` BLOCKED |
+| `AUD-047` | **SUPERSEDED** by `CUR-007` | `CUR-007` BLOCKED |
+| `AUD-048` | **SUPERSEDED** by `CUR-014` | `CUR-014` BLOCKED (hardware unavailable) |
+| `AUD-049` | **SUPERSEDED** by `CUR-012` | `CUR-012` BLOCKED |
+| `AUD-050` | **SUPERSEDED** by `CUR-012` | `CUR-012` BLOCKED |
+| `AUD-051` | **SUPERSEDED** by `CUR-002` | `CUR-002` BLOCKED |
+| `AUD-052` | **SUPERSEDED** by `CUR-004` | `CUR-004` BLOCKED |
+| `AUD-053` | **SUPERSEDED** by `CUR-004` | `CUR-004` BLOCKED |
+| `AUD-054` | **SUPERSEDED** by `CUR-010` | `CUR-010` BLOCKED |
+| `AUD-055` | **SUPERSEDED** by `CUR-002` | `CUR-002` BLOCKED |
+| `AUD-056` | **SUPERSEDED** by `CUR-007` | `CUR-007` BLOCKED |
+| `AUD-057` | **SUPERSEDED** by `CUR-001` | `CUR-001` BLOCKED |
+| `AUD-058` | **SUPERSEDED** by `CUR-001` | `CUR-001` BLOCKED |
+| `AUD-059` | **SUPERSEDED** by `CUR-003` | `CUR-003` BLOCKED |
+| `AUD-060` | **SUPERSEDED** by `CUR-003` | `CUR-003` BLOCKED |
+| `AUD-061` | **SUPERSEDED** by `CUR-013` | `CUR-013` BLOCKED |
+| `AUD-062` | **SUPERSEDED** by `CUR-004` | `CUR-004` BLOCKED |
+| `AUD-063` | **SUPERSEDED** by `CUR-013` | `CUR-013` BLOCKED |
+| `AUD-064` | **SUPERSEDED** by `CUR-013` | `CUR-013` BLOCKED |
+| `AUD-065` | **SUPERSEDED** by `CUR-002` | `CUR-002` BLOCKED |
+| `AUD-066` | **SUPERSEDED** by `CUR-015` | `CUR-015` BLOCKED |
+| `AUD-067` | **SUPERSEDED** by `CUR-004` | `CUR-004` BLOCKED |
+| `AUD-068` | **SUPERSEDED** by `CUR-002` | `CUR-002` BLOCKED |
+| `AUD-069` | **SUPERSEDED** by `CUR-015` | `CUR-015` BLOCKED |
+| `AUD-070` | **SUPERSEDED** by `CUR-003` | `CUR-003` BLOCKED |
+| `AUD-071` | **SUPERSEDED** by `CUR-013` | `CUR-013` BLOCKED |
+| `AUD-072` | **SUPERSEDED** by `CUR-015` | `CUR-015` BLOCKED |
+| `AUD-073` | **SUPERSEDED** by `CUR-015` | `CUR-015` BLOCKED |
 
-### [x] AUD-006: Reject unsupported W5500 protocols and invalid MACRAW sockets before issuing OPEN
-**Resolution**: Wrapped IPv6/dual case labels in `#ifdef IPV6_AVAILABLE`. Added MACRAW `sn==0` check before register mutation.
+## Release Statement
 
-### [x] AUD-007: Add bounded deadlines and recovery to all W5500 polling loops
-**Resolution**: Added `_WIZCHIP_POLL_MAX_` constant and `SOCKERR_DEADLINE`. Applied iteration counters to FSR/RSR seqlock loops, socket OPEN wait, send/sendto/recv polling.
-
-### [x] AUD-036: Prevent recv() deadlock in SOCK_CLOSE_WAIT with zero RX and pending TX
-**Resolution**: Folded into AUD-007. Added deadline check in SOCK_CLOSE_WAIT/zero-data branch with `continue`.
-
-### [x] AUD-008: Remove full-payload transfers from globally interrupt-masked sections
-**Resolution**: Documentation: CRIS struct updated with FreeRTOS `xSemaphoreTake/Give` example. CRITICAL_ENTER macro docs updated. Full implementation on all-audit-fixes with bus mutex pattern.
-
-### [x] AUD-009: Define and enforce synchronous, error-reporting SPI callback semantics
-**Resolution**: Documentation: SPI callback contract documented. Full implementation on all-audit-fixes adds `IF.SPI_STATUS` struct with `_check_busy`/`_get_error` callbacks and `_spi_status_check()` wrapper.
-
-### [x] AUD-010: Probe W5500 identity and configuration during initialization and recovery
-**Resolution**: Changed `wizchip_sw_reset()` from `void` to `int8_t`. Added VERSIONR check with bounded retry. Updated callers.
-
-### [x] AUD-011: Establish a concurrency model and serialize complete per-socket operations
-**Resolution**: Documentation: single-task assumption stated. Full implementation on all-audit-fixes adds `_LOCK` struct with per-socket and global lock callbacks, default no-ops, `reg_wizchip_lock_cbfunc()`, and lock macros.
-
-### [x] AUD-012: Give W5500 socket interrupt events a single software owner
-**Resolution**: Documentation: single-owner model documented near `wizchip_clrinterrupt()`. Guidance to snapshot `Sn_IR` into software-pending bits.
-
-### [x] AUD-013: Validate complete W5500 TX/RX buffer layouts before touching hardware
-**Resolution**: Added validation of TX/RX arrays before reset: check values in {0,1,2,4,8,16}, totals ≤ 16 KiB, using `uint16_t` accumulator.
-
-### [x] AUD-014: Make partial IPRAW receives progress on every call
-**Resolution**: Moved `pack_len` calculation and `wiz_recv_data()` outside the `sock_remained_size==0` condition for non-IPv6 IPRAW path.
-
-### [x] AUD-015: Make nonblocking sendto() nonblocking after the SEND command
-**Resolution**: Added nonblocking-mode check after Sn_CR wait in sendto(), returning `len` immediately instead of spinning for SENDOK.
-
-### [x] AUD-016: Align blocking socket API returns with W5500 command completion
-**Resolution**: Documentation: comments in `socket.h` distinguishing command-accepted from command-completed semantics.
-
-### [x] AUD-017: Stop Application send loops from spinning on zero progress
-**Resolution**: Added `SOCK_BUSY` check in loopback.c and multicast.c send loops; break on zero progress instead of spinning.
-
-### [x] AUD-018: Preserve UDP peer metadata across partial datagram receives
-**Resolution**: Changed `destip`/`destport` from automatic to `static` in `loopback_udps()` and multicast helpers.
-
-### [x] AUD-037: Fix SENDOK arrival race in dual-pending TCP send()
-**Resolution**: Confirmed unreachable dead code per fourth-pass analysis. Removed the second `sock_is_sending` block with explanatory comment.
-
-### [x] AUD-039: Add bounded settle/wait after W5500 PHY reset before re-accessing PHYCFGR
-**Resolution**: Added `_WIZCHIP_PHY_SETTLE_` delay loop and bounded stability poll in `wizphy_reset()`.
-
-### [x] AUD-040: 16-bit socket-register writes are two SPI frames and can be torn mid-update
-**Resolution**: Wrapped `setSn_TX_WR` and `setSn_RX_RD` in single `CRITICAL_ENTER/EXIT` span. Combined with AUD-041.
-
-### [x] AUD-041: 16-bit socket-register reads lack the seqlock-style retry
-**Resolution**: Combined with AUD-040. CRITICAL wrapping fixes both torn-write and torn-read hazards.
-
-## P2 — Functional and API Correctness
-
-### [x] AUD-019: Configure multicast on the requested socket and port
-**Resolution**: Changed `setSn_DIPR(0,...)`/`setSn_DPORT(0,...)` to use `sn`. Changed `port=3000` to `port=multicast_port`.
-
-### [x] AUD-020: Make socket-option queries report consistent W5500 state
-**Resolution**: SO_FLAG merges `sock_io_mode`. SO_REMAINSIZE and SO_PACKINFO use masked `(getSn_MR(sn)&0x0F)` comparison.
-
-### [x] AUD-021: Preserve the documented marker for zero-length UDP datagrams
-**Resolution**: Changed `sock_pack_info[sn] = PACK_COMPLETED` to `|= PACK_COMPLETED` (no-op since ==0), preserving previously-set PACK_FIRST.
-
-### [x] AUD-022: Allow network modes to be disabled
-**Resolution**: Clear controlled mode mask before OR-ing new value in `wizchip_setnetmode()`.
-
-### [x] AUD-023: Verify PHY power mode with exact masked equality
-**Resolution**: Compare `(tmp & OPMDC_ALLA)` with exact encoding values instead of bitwise truth in `wizphy_setphypmode()`.
-
-### [x] AUD-024: Validate protocol flags with explicit allowed masks
-**Resolution**: Added W5500-specific pre-switch flag validation: TCP allows `SF_TCP_NODELAY|SF_IO_NONBLOCK`, UDP allows `SF_MULTI_ENABLE|SF_BROAD_BLOCK|SF_UNI_BLOCK|SF_IGMP_VER2`, MACRAW/IPRAW reject all flags.
-
-### [x] AUD-025: Use a collision-safe client source-port allocator
-**Resolution**: Added pre-use port increment with wrap from 65534 to 1024, skipping privileged ports.
-
-### [x] AUD-026: Require explicit W5500 build selection
-**Resolution**: Replaced silent `#define _WIZCHIP_ W6300` default with `#error "Define _WIZCHIP_..."`.
-
-### [x] AUD-027: Make callback registration fail immediately on the wrong interface
-**Resolution**: Replaced `while(!(if_mode & BUS_MODE))` spin loops with `if(!(...)) return;` immediate return.
-
-### [x] AUD-028: Restore strict-C and legacy API integration
-**Resolution**: Fixed `LOOPBACK_MAIN_NOBLCOK` spelling, `IINCHIP_WRITE_BUF` legacy alias, `%ld`→PRId32 format specifiers, and misaligned indentation braces.
-
-### [x] AUD-038: Add send() TIMEOUT unambiguous destroy notification
-**Resolution**: Return `SOCKERR_SOCKCLOSED` instead of `SOCKERR_TIMEOUT` after `close(sn)` in send() timeout path.
-
-### [x] AUD-042: Add NULL validation to IPv4 recvfrom() addr/port outputs
-**Resolution**: Added `if (!addr || !port) return SOCKERR_ARG;` in IPv4 recvfrom() path before addr/port dereferences.
-
-### [x] AUD-043: Skip address/port handling in sendto() for MACRAW mode to avoid NULL deref
-**Resolution**: Wrapped addr/port validation and programming block in `if ((getSn_MR(sn)&0x0F) != Sn_MR_MACRAW)`.
-
-### [x] AUD-044: Stop disconnect() from re-issuing Sn_CR_DISCON on every nonblocking retry
-**Resolution**: Only issue `setSn_CR(sn, Sn_CR_DISCON)` when Sn_SR is `SOCK_ESTABLISHED` or `SOCK_CLOSE_WAIT`.
-
-### [x] AUD-045: Add NULL validation to wiz_send_data()/wiz_recv_data()
-**Resolution**: Added `|| wizdata == 0` to the existing `if (len == 0)` guard in both functions.
-
-### [x] AUD-049: Program Sn_DHAR with the group MAC before opening a W5500 multicast socket
-**Resolution**: Computed multicast MAC (`01:00:5E:ip[1]&0x7F:ip[2]:ip[3]`) and called `setSn_DHAR(sn, mac)` before `socket()`.
-
-## P3 — Efficiency and Hardening
-
-### [x] AUD-029: Disable raw packet logging by default and make diagnostics bounded
-**Resolution**: Wrapped payload `printf` in loopback_udpc with `#ifdef _LOOPBACK_DEBUG_`. Commented out per-byte printf in multicast.
-
-### [x] AUD-030: Use sequential VDM transfers for 16-bit W5500 registers
-**Resolution**: Added `wizchip_read16_5500()` and `wizchip_write16_5500()` VDM burst helpers.
-
-### [x] AUD-031: Remove duplicate mode and destination traffic from W5500 sendto()
-**Resolution**: Replaced two redundant `getSn_MR(sn)` reads with cached `tmp` variable, saving 2 SPI frames per sendto.
-
-### [x] AUD-032: Provide a real platform burst SPI path
-**Resolution**: Documented burst vs byte-fallback in SPI callback comments. Guidance to register platform FIFO/DMA implementations.
-
-### [x] AUD-033: Reduce W5500 datagram RX pointer transactions
-**Resolution**: Documented optimization in UDP4 recvfrom path: read RX pointer once, compute local offsets, publish final pointer once.
-
-### [x] AUD-034: Avoid duplicate receive-size probes in Application helpers
-**Resolution**: Documented duplicate `getSn_RX_RSR` probes (Application + recv/recvfrom). Optimization depends on nonblocking semantics (AUD-004).
-
-### [x] AUD-035: Use W5500 INTn/SIR to avoid polling every idle socket
-**Resolution**: Added SIR documentation noting it enables event-driven scheduling: poll SIR once per iteration, service only active sockets.
-
-### [x] AUD-046: Cache Sn_TXBUF_SIZE/Sn_RXBUF_SIZE after init
-**Resolution**: Added `wizchip_txmax_cache[]`/`wizchip_rxmax_cache[]` arrays. Populated in `wizchip_init()`. Replaced `getSn_TxMAX`/`getSn_RxMAX` calls in send/recv/sendto with cache lookups.
-
-### [x] AUD-047: Add len==0 early return to wiz_recv_ignore
-**Resolution**: Added `if (len == 0) return;` at top of `wiz_recv_ignore()`, matching sibling functions.
-
-### [x] AUD-048: Read IR and SIR in one VDM frame in wizchip_getinterrupt()
-**Resolution**: Replaced two separate `getIR()`/`getSIR()` reads with single 3-byte `WIZCHIP_READ_BUF(IR, ...)` burst.
+The implementation may be present in the candidate worktree, but the evidence
+record does not support a resolution or release-readiness claim. The release
+remains blocked until all mandatory current rows have accepted clean-candidate
+artifacts, including physical smoke and full-diagnostic results for the
+hardware-dependent categories.

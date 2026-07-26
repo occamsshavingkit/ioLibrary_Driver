@@ -271,19 +271,15 @@ void wiz_recv_ignore(uint8_t sn, uint16_t len) {
 }
 
 uint8_t (wizchip_read16_5500)(uint32_t addr, uint16_t *out) {
-    uint8_t high;
-    uint8_t low;
+    uint8_t tmp[2];
 
     if (!out) {
         return (uint8_t)-1;
     }
-    if (wizchip_read8_checked_out(addr, &high) != 0) {
+    if (wizchip_read_buf_checked(addr, tmp, 2) != 0) {
         return (uint8_t)-1;
     }
-    if (wizchip_read8_checked_out(WIZCHIP_OFFSET_INC(addr, 1), &low) != 0) {
-        return (uint8_t)-1;
-    }
-    *out = ((uint16_t)high << 8) | low;
+    *out = ((uint16_t)tmp[0] << 8) | tmp[1];
     return 0;
 }
 
