@@ -1325,6 +1325,13 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
     }
 
     WIZCHIP_SOCK_LOCK(sn);
+    /* A locally faulted transmit path reports its own timeout ahead of the
+     * generic health gate, and performs no further W5500 access. Only a
+     * controller reset and reopen may clear it. */
+    if (sock_tx_state[sn] == SOCK_TX_LOCAL_FAULT) {
+        ret = SOCKERR_TIMEOUT;
+        goto sndto_done;
+    }
     if (sock_health[sn] == SOCK_FAULTED) {
         ret = SOCKERR_IO;
         goto sndto_done;
@@ -1335,6 +1342,28 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
         goto sndto_done;
     }
     nonblocking = sock_io_mode[sn];
+
+    /* While a SEND is pending, do not copy the payload or reissue the
+     * command. Inspect one interrupt and return immediately. */
+    if (sock_tx_state[sn] == SOCK_TX_DGRAM_PENDING) {
+        tmp = getSn_IR(sn);
+        if ((tmp & Sn_IR_SENDOK) != 0U) {
+            setSn_IR(sn, Sn_IR_SENDOK);
+            ret = (int32_t)sock_tx_pending_len[sn];
+            sock_tx_pending_len[sn] = 0U;
+            sock_tx_state[sn] = SOCK_TX_IDLE;
+            goto sndto_done;
+        }
+        if ((tmp & Sn_IR_TIMEOUT) != 0U) {
+            setSn_IR(sn, Sn_IR_TIMEOUT);
+            sock_tx_pending_len[sn] = 0U;
+            sock_tx_state[sn] = SOCK_TX_IDLE;
+            ret = SOCKERR_TIMEOUT;
+            goto sndto_done;
+        }
+        ret = SOCK_BUSY;
+        goto sndto_done;
+    }
 
     /*
         The below codes can be omitted for optmization of speed
@@ -1445,6 +1474,9 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
     } else if (getSn_SR(sn) == SOCK_CLOSED) {
         ret = SOCKERR_SOCKCLOSED; goto sndto_done;
     }
+    /* Clear stale terminal events so the pending poll cannot observe the
+     * result of a previous datagram. */
+    setSn_IR(sn, (uint8_t)(Sn_IR_SENDOK | Sn_IR_TIMEOUT));
     wiz_send_data(sn, buf, len);
 
 #if _WIZCHIP_ < 5500   //M20150401 : for WIZCHIP Errata #4, #5 (ARP errata)
@@ -1467,9 +1499,27 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
     //
     setSn_CR(sn, Sn_CR_SEND);
 #endif
-    ret = wait_datagram_cr_accepted(
-        sn, timeout_config.command_timeout_us, nonblocking);
+    /* Only command acceptance is a local wait. Its expiry is a
+     * controller-progress fault rather than a peer-paced wait, so it must not
+     * enter the pending state. */
+    ret = sock_deadline_begin(&deadline_abs,
+                              timeout_config.command_timeout_us);
     if (ret != SOCK_OK) {
+        sock_tx_state[sn] = SOCK_TX_LOCAL_FAULT;
+        goto sndto_done;
+    }
+    ret = wait_cr_accepted(sn, deadline_abs);
+    if (ret != SOCK_OK) {
+        sock_tx_state[sn] = SOCK_TX_LOCAL_FAULT;
+        goto sndto_done;
+    }
+
+    /* Accepted. Completion is paced by the peer, so record the accepted length
+     * and resume across scheduling iterations instead of blocking here. */
+    sock_tx_pending_len[sn] = len;
+    if (nonblocking != 0U) {
+        sock_tx_state[sn] = SOCK_TX_DGRAM_PENDING;
+        ret = SOCK_BUSY;
         goto sndto_done;
     }
 
