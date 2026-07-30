@@ -510,6 +510,20 @@ typedef enum {
 
 /**
     @ingroup DATA_TYPE
+    @brief Live transmit state of a socket, owned by the CPU.
+    @details This is transaction state, not a per-socket last-error channel.
+    After a first @ref SOCK_BUSY it tells the caller whether a SEND command was
+    actually accepted, which distinguishes a local controller-progress fault
+    from a normal externally paced wait.
+*/
+typedef enum {
+    SOCK_TX_IDLE = 0,        ///< no SEND is outstanding
+    SOCK_TX_DGRAM_PENDING,   ///< SEND was accepted; awaiting a terminal event
+    SOCK_TX_LOCAL_FAULT      ///< a local deadline expired; reuse needs reset and reopen
+} sock_tx_state_t;
+
+/**
+    @ingroup DATA_TYPE
     @brief The type of @ref ctlsocket().
 */
 typedef enum {
@@ -527,8 +541,9 @@ typedef enum {
     //#endif
 #if _WIZCHIP_ >= 5100
     CS_SET_INTMASK,         ///< set the interrupt mask of socket with @ref sockint_kind, Not supported in W5100
-    CS_GET_INTMASK          ///< get the masked interrupt of socket. refer to @ref sockint_kind, Not supported in W5100
+    CS_GET_INTMASK,         ///< get the masked interrupt of socket. refer to @ref sockint_kind, Not supported in W5100
 #endif
+    CS_GET_TX_STATE         ///< get the CPU-owned transmit state. refer to @ref sock_tx_state_t. Performs no WIZCHIP access
 } ctlsock_type;
 
 

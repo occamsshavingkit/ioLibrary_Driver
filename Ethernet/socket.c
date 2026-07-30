@@ -86,10 +86,16 @@ uint8_t sock_remained_byte[_WIZCHIP_SOCK_NUM_] = {0,}; // set by wiz_recv_data()
 
 static uint8_t sock_mode[_WIZCHIP_SOCK_NUM_] = {0,}; // Sn_MR cache (AUD-064)
 
+/* CPU-owned live transmit state. Never read from the WIZCHIP. */
+static sock_tx_state_t sock_tx_state[_WIZCHIP_SOCK_NUM_];
+static uint16_t sock_tx_pending_len[_WIZCHIP_SOCK_NUM_];
+
 static void sock_state_reset(uint8_t sn) {
     sock_io_mode[sn] = 0;
     sock_is_sending[sn] = 0;
     sock_health[sn] = SOCK_HEALTHY;
+    sock_tx_state[sn] = SOCK_TX_IDLE;
+    sock_tx_pending_len[sn] = 0U;
     sock_remained_size[sn] = 0;
     sock_pack_info[sn] = PACK_NONE;
     sock_mode[sn] = 0;
@@ -1924,6 +1930,13 @@ int8_t  ctlsocket(uint8_t sn, ctlsock_type cstype, void* arg) {
         return SOCKERR_ARG;
     }
     WIZCHIP_SOCK_LOCK(sn);
+    /* Answered before the health gate and without any WIZCHIP access: the
+     * caller needs this query most when the socket is locally faulted. */
+    if (cstype == CS_GET_TX_STATE) {
+        *((sock_tx_state_t*)arg) = sock_tx_state[sn];
+        ret = SOCK_OK;
+        goto ctl_done;
+    }
     if (sock_health[sn] == SOCK_FAULTED) {
         ret = SOCKERR_IO;
         goto ctl_done;
