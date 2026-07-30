@@ -377,6 +377,9 @@ static wizchip_wait_hook_fn wait_hook;
 static uint8_t wizchip_transport_healthy = 0;
 static uint32_t configured_timeout_us;
 static uint32_t poll_counter;
+static wizchip_time_us_cb_t time_us_cb;
+static uint32_t wrap_last_raw_us;
+static uint64_t wrap_base_us;
 static wizchip_timeout_config_t timeout_config = {
     10000u,
     WIZCHIP_OPERATION_TIMEOUT_DEFAULT_US,
@@ -404,10 +407,21 @@ static void wizchip_update_timeout_floor_locked(uint16_t rtr,
 static void wizchip_setinterruptmask_locked(intr_kind intr);
 static intr_kind wizchip_getinterruptmask_locked(void);
 
+static void wizchip_time_source_reset(void) {
+    wrap_last_raw_us = 0u;
+    wrap_base_us = 0u;
+}
+
+static int8_t wizchip_time_source_active(void) {
+    return (time_us_cb != 0 || time_cbs._now_us != 0) ? 1 : 0;
+}
+
 void reg_wizchip_time_cbfunc(wizchip_time_fn now_fn, wizchip_wait_fn wait_fn) {
     time_cbs._now_us = now_fn;
     time_cbs._wait_us = wait_fn;
     wait_hook = 0;
+    time_us_cb = 0;
+    wizchip_time_source_reset();
 }
 
 void reg_wizchip_time_hook_cbfunc(wizchip_time_fn now_fn,
@@ -415,6 +429,40 @@ void reg_wizchip_time_hook_cbfunc(wizchip_time_fn now_fn,
     time_cbs._now_us = now_fn;
     time_cbs._wait_us = 0;
     wait_hook = wait_fn;
+    time_us_cb = 0;
+    wizchip_time_source_reset();
+}
+
+void reg_wizchip_time_us_cbfunc(wizchip_time_us_cb_t now_us) {
+    time_us_cb = now_us;
+    wizchip_time_source_reset();
+}
+
+int8_t wizchip_set_operation_timeout_us(uint32_t timeout_us) {
+    uint16_t rtr;
+    uint8_t rcr;
+
+    if (timeout_us == 0u) {
+        return -1;
+    }
+    WIZCHIP_GLOBAL_LOCK();
+    rtr = getRTR();
+    rcr = getRCR();
+    requested_operation_timeout_us = timeout_us;
+    wizchip_update_timeout_floor_locked(rtr, rcr);
+    WIZCHIP_GLOBAL_UNLOCK();
+    return 0;
+}
+
+int8_t wizchip_deadline_config_valid(void) {
+    if (wizchip_time_source_active() == 0) {
+        return 0;
+    }
+    if (timeout_config.command_timeout_us == 0u ||
+        timeout_config.operation_timeout_us == 0u) {
+        return 0;
+    }
+    return 1;
 }
 
 uint8_t wizchip_timeout_config_set(uint32_t timeout_us) {
@@ -428,8 +476,8 @@ uint8_t wizchip_timeout_config_set(uint32_t timeout_us) {
 }
 
 uint64_t wizchip_deadline_abs(uint64_t timeout_us) {
-    if (time_cbs._now_us) {
-        return time_cbs._now_us() + timeout_us;
+    if (wizchip_time_source_active()) {
+        return wizchip_time_now() + timeout_us;
     }
     poll_counter = 0u;
     configured_timeout_us = timeout_us > UINT32_MAX
@@ -439,18 +487,33 @@ uint64_t wizchip_deadline_abs(uint64_t timeout_us) {
 }
 
 int8_t wizchip_deadline_expired(uint64_t deadline_us) {
-    if (time_cbs._now_us) {
-        return time_cbs._now_us() >= deadline_us;
+    if (wizchip_time_source_active()) {
+        return wizchip_time_now() >= deadline_us;
     }
     ++poll_counter;
     return poll_counter >= deadline_us;
 }
 
+/* Reconstruct a monotonic 64-bit timeline from a source that may wrap at 2^32
+ * microseconds, so absolute deadlines stay comparable across a wrap.  The
+ * source is treated as 32-bit whichever callback supplied it; a genuine 64-bit
+ * source never decreases in its low word without having wrapped.  Callers must
+ * poll more often than once per wrap period, about 71 minutes. */
 uint64_t wizchip_time_now(void) {
-    if (time_cbs._now_us) {
-        return time_cbs._now_us();
+    uint32_t raw;
+
+    if (time_us_cb) {
+        raw = time_us_cb();
+    } else if (time_cbs._now_us) {
+        raw = (uint32_t)time_cbs._now_us();
+    } else {
+        return poll_counter;
     }
-    return poll_counter;
+    if (raw < wrap_last_raw_us) {
+        wrap_base_us += 0x100000000ull;
+    }
+    wrap_last_raw_us = raw;
+    return wrap_base_us + (uint64_t)raw;
 }
 
 int8_t wizchip_set_timeout_config(const wizchip_timeout_config_t *config) {
@@ -506,7 +569,7 @@ int8_t wizchip_deadline_poll(wizchip_deadline_t *deadline) {
     if (deadline->polls >= _WIZCHIP_POLL_MAX_) {
         return -16;
     }
-    if (time_cbs._now_us &&
+    if (wizchip_time_source_active() &&
         (wizchip_time_now() - deadline->started_us) >= deadline->timeout_us) {
         return -16;
     }

@@ -88,9 +88,23 @@ typedef struct {
     uint32_t polls;
 } wizchip_deadline_t;
 
+/* Platform-neutral monotonic microsecond source.  A 32-bit source is the
+ * portable lower bound; the configuration layer reconstructs a monotonic
+ * 64-bit timeline from it, so deadlines remain correct across a wrap. */
+typedef uint32_t (*wizchip_time_us_cb_t)(void);
+
 void reg_wizchip_time_cbfunc(wizchip_time_fn now_fn, wizchip_wait_fn wait_fn);
 void reg_wizchip_time_hook_cbfunc(wizchip_time_fn now_fn,
                                   wizchip_wait_hook_fn wait_fn);
+void reg_wizchip_time_us_cbfunc(wizchip_time_us_cb_t now_us);
+
+/* Set the local operation budget.  Rejects zero so a missing configuration can
+ * never be mistaken for an unbounded wait. */
+int8_t wizchip_set_operation_timeout_us(uint32_t timeout_us);
+
+/* Non-zero when a time source and non-zero budgets are both configured, so a
+ * caller can validate before issuing its first command. */
+int8_t wizchip_deadline_config_valid(void);
 uint8_t wizchip_timeout_config_set(uint32_t timeout_us);
 uint64_t wizchip_deadline_abs(uint64_t timeout_us);
 int8_t wizchip_deadline_expired(uint64_t deadline_us);
