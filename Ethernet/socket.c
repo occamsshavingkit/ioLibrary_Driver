@@ -137,6 +137,18 @@ static int8_t wait_poll_expired(wizchip_deadline_t *poll,
     return SOCK_OK;
 }
 
+/* Open one local operation deadline for the invocation that is about to issue
+ * a command.  A missing time source or a zero budget is a local configuration
+ * fault: fail bounded here, before any side effect, rather than falling back
+ * to poll counting which is not an elapsed-time guarantee. */
+static int8_t sock_deadline_begin(uint64_t *deadline, uint32_t budget_us) {
+    if (wizchip_deadline_config_valid() == 0) {
+        return SOCKERR_TIMEOUT;
+    }
+    *deadline = wizchip_deadline_abs(budget_us);
+    return SOCK_OK;
+}
+
 static int8_t wait_cr_accepted(uint8_t sn, uint64_t deadline) {
     wizchip_deadline_t poll;
 
@@ -144,7 +156,22 @@ static int8_t wait_cr_accepted(uint8_t sn, uint64_t deadline) {
     while (getSn_CR(sn) != 0U) {
         if (wait_poll_expired(&poll, deadline) == SOCKERR_DEADLINE) {
             sock_health[sn] = SOCK_FAULTED;
-            return SOCKERR_DEADLINE;
+            return SOCKERR_TIMEOUT;
+        }
+    }
+    return SOCK_OK;
+}
+
+/* Immediate status transition caused by a command, bounded by the same
+ * invocation deadline that bounded the command itself. */
+static int8_t wait_sr_reached(uint8_t sn, uint8_t wanted, uint64_t deadline) {
+    wizchip_deadline_t poll;
+
+    wait_poll_init(&poll, deadline);
+    while (getSn_SR(sn) != wanted) {
+        if (wait_poll_expired(&poll, deadline) == SOCKERR_DEADLINE) {
+            sock_health[sn] = SOCK_FAULTED;
+            return SOCKERR_TIMEOUT;
         }
     }
     return SOCK_OK;
@@ -167,9 +194,6 @@ static int8_t wait_datagram_cr_accepted(uint8_t sn, uint32_t timeout_us,
     }
 
     deadline = wizchip_deadline_abs(timeout_us);
-    if (deadline == 0U) {
-        deadline = _WIZCHIP_POLL_MAX_;
-    }
     wait_poll_init(&poll, deadline);
     while (getSn_CR(sn) != 0U) {
         if ((getSn_IR(sn) & Sn_IR_TIMEOUT) != 0U) {
@@ -178,7 +202,7 @@ static int8_t wait_datagram_cr_accepted(uint8_t sn, uint32_t timeout_us,
         }
         if (wait_poll_expired(&poll, deadline) == SOCKERR_DEADLINE) {
             sock_health[sn] = SOCK_FAULTED;
-            return SOCKERR_DEADLINE;
+            return SOCKERR_TIMEOUT;
         }
     }
     return SOCK_OK;
@@ -230,7 +254,8 @@ static uint8_t sock_mode_cached_or_read(uint8_t sn) {
     return mode;
 }
 
-static int8_t close_internal(uint8_t sn, uint8_t under_lock);
+static int8_t close_internal(uint8_t sn, uint8_t under_lock,
+                             uint64_t inherited_deadline);
 static int8_t connect_IO_6(uint8_t sn, uint8_t *addr, uint16_t port,
                            uint8_t addrlen);
 static int32_t sendto_IO_6(uint8_t sn, uint8_t *buf, uint16_t len,
@@ -487,12 +512,21 @@ int8_t socket(uint8_t sn, uint8_t protocol, uint16_t port, uint8_t flag) {
         ret = SOCKERR_NOTREADY;
         goto socket_done;
     }
+
+    /* One deadline for this whole invocation, opened before the first side
+     * effect and shared with the internal close below. */
+    (void)wizchip_get_timeout_config(&timeout_config);
+    ret = sock_deadline_begin(&deadline_abs, timeout_config.command_timeout_us);
+    if (ret != SOCK_OK) {
+        goto socket_done;
+    }
+
     if (getSn_SR(sn) != SOCK_CLOSED) {
         if (status_before_lock == SOCK_CLOSED) {
             ret = SOCKERR_SOCKSTATUS;
             goto socket_done;
         }
-        ret = close_internal(sn, 1U);
+        ret = close_internal(sn, 1U, deadline_abs);
         if (ret != SOCK_OK) {
             goto socket_done;
         }
@@ -546,30 +580,18 @@ int8_t socket(uint8_t sn, uint8_t protocol, uint16_t port, uint8_t flag) {
     setSn_MR2(sn, flag & 0x03);
 #endif
     setSn_PORTR(sn, port);
-    (void)wizchip_get_timeout_config(&timeout_config);
     setSn_CR(sn, Sn_CR_OPEN);
-    deadline_abs = wizchip_deadline_abs(timeout_config.command_timeout_us);
-    if (deadline_abs == 0U) {
-        deadline_abs = _WIZCHIP_POLL_MAX_;
-    }
     ret = wait_cr_accepted(sn, deadline_abs);
     if (ret != SOCK_OK) {
         goto socket_done;
     }
-    ret = (int8_t)sn;
 
     expected_status = socket_open_status(protocol);
-    deadline_abs = wizchip_deadline_abs(timeout_config.operation_timeout_us);
-    if (deadline_abs == 0U) {
-        deadline_abs = _WIZCHIP_POLL_MAX_;
+    ret = wait_sr_reached(sn, expected_status, deadline_abs);
+    if (ret != SOCK_OK) {
+        goto socket_done;
     }
-    while (getSn_SR(sn) != expected_status) {
-        if (wizchip_deadline_expired(deadline_abs)) {
-            sock_health[sn] = SOCK_FAULTED;
-            ret = SOCKERR_IO;
-            goto socket_done;
-        }
-    }
+    ret = (int8_t)sn;
     sock_state_reset(sn);
     sock_mode[sn] = (uint8_t)(protocol | (hardware_flag & 0xF0));
     sock_health[sn] = SOCK_HEALTHY;
@@ -588,8 +610,11 @@ socket_done:
     return ret;
 }
 
-static int8_t close_internal(uint8_t sn, uint8_t under_lock) {
-    wizchip_deadline_t deadline;
+/* inherited_deadline is the caller's invocation deadline, or 0 when this call
+ * is itself the invocation that issues the first command. */
+static int8_t close_internal(uint8_t sn, uint8_t under_lock,
+                             uint64_t inherited_deadline) {
+    uint64_t deadline_abs = inherited_deadline;
     wizchip_timeout_config_t timeout_config;
     int8_t ret = SOCK_OK;
 
@@ -598,6 +623,14 @@ static int8_t close_internal(uint8_t sn, uint8_t under_lock) {
     }
     if (under_lock == 0U) {
         WIZCHIP_SOCK_LOCK(sn);
+    }
+    if (deadline_abs == 0U) {
+        (void)wizchip_get_timeout_config(&timeout_config);
+        ret = sock_deadline_begin(&deadline_abs,
+                                  timeout_config.command_timeout_us);
+        if (ret != SOCK_OK) {
+            goto close_clear_state;
+        }
     }
 
     if (sock_health[sn] == SOCK_FAULTED) {
@@ -632,31 +665,22 @@ static int8_t close_internal(uint8_t sn, uint8_t under_lock) {
     };
 #endif
     setSn_CR(sn, Sn_CR_CLOSE);
-    (void)wizchip_get_timeout_config(&timeout_config);
-    wizchip_deadline_start(&deadline, timeout_config.command_timeout_us);
-    while (getSn_CR(sn) != 0U) {
-        if (wizchip_deadline_poll(&deadline) == SOCKERR_DEADLINE) {
-            ret = SOCKERR_DEADLINE;
-            goto close_clear_state;
-        }
+    ret = wait_cr_accepted(sn, deadline_abs);
+    if (ret != SOCK_OK) {
+        goto close_clear_state;
     }
     /* clear all interrupt of SOCKETn. */
     setSn_IR(sn, 0xFF);
-    wizchip_deadline_start(&deadline, timeout_config.operation_timeout_us);
-    while (getSn_SR(sn) != SOCK_CLOSED) {
-        wizchip_wdt_kick();
-        if (wizchip_deadline_poll(&deadline) == SOCKERR_DEADLINE) {
-            ret = SOCKERR_DEADLINE;
-            break;
-        }
-    }
+    /* The watchdog is deliberately not kicked from this loop: it must remain
+     * able to detect a driver that has stopped making local progress. */
+    ret = wait_sr_reached(sn, SOCK_CLOSED, deadline_abs);
 
 close_clear_state:
     sock_state_reset(sn);
     sock_remained_size[sn] = 0;
     sock_pack_info[sn] = PACK_NONE;
     sock_mode[sn] = 0U;
-    if (ret == SOCKERR_DEADLINE) {
+    if (ret == SOCKERR_TIMEOUT) {
         sock_health[sn] = SOCK_FAULTED;
     }
     if (under_lock == 0U) {
@@ -670,7 +694,7 @@ int8_t close(uint8_t sn) {
 
     CHECK_SOCKNUM();
     WIZCHIP_SOCK_LOCK(sn);
-    ret = close_internal(sn, 1U);
+    ret = close_internal(sn, 1U, 0U);
     WIZCHIP_SOCK_UNLOCK(sn);
     return ret;
 }
@@ -678,7 +702,6 @@ int8_t close(uint8_t sn) {
 int8_t listen(uint8_t sn) {
     int8_t ret = SOCK_OK;
     uint64_t deadline_abs;
-    wizchip_deadline_t poll;
     wizchip_timeout_config_t timeout_config;
 
     CHECK_SOCKNUM();
@@ -692,27 +715,19 @@ int8_t listen(uint8_t sn) {
         goto listen_done;
     }
     (void)wizchip_get_timeout_config(&timeout_config);
-    setSn_CR(sn, Sn_CR_LISTEN);
-    deadline_abs = wizchip_deadline_abs(timeout_config.command_timeout_us);
-    if (deadline_abs == 0U) {
-        deadline_abs = _WIZCHIP_POLL_MAX_;
+    ret = sock_deadline_begin(&deadline_abs,
+                              timeout_config.command_timeout_us);
+    if (ret != SOCK_OK) {
+        goto listen_done;
     }
+    setSn_CR(sn, Sn_CR_LISTEN);
     ret = wait_cr_accepted(sn, deadline_abs);
     if (ret != SOCK_OK) {
         goto listen_done;
     }
-
-    deadline_abs = wizchip_deadline_abs(timeout_config.operation_timeout_us);
-    if (deadline_abs == 0U) {
-        deadline_abs = _WIZCHIP_POLL_MAX_;
-    }
-    wait_poll_init(&poll, deadline_abs);
-    while (getSn_SR(sn) != SOCK_LISTEN) {
-        if (wait_poll_expired(&poll, deadline_abs) == SOCKERR_DEADLINE) {
-            sock_health[sn] = SOCK_FAULTED;
-            ret = SOCKERR_IO;
-            goto listen_done;
-        }
+    ret = wait_sr_reached(sn, SOCK_LISTEN, deadline_abs);
+    if (ret != SOCK_OK) {
+        goto listen_done;
     }
 listen_done:
     WIZCHIP_SOCK_UNLOCK(sn);
@@ -822,19 +837,17 @@ static int8_t connect_IO_6(uint8_t sn, uint8_t * addr, uint16_t port, uint8_t ad
         setSn_CR(sn, Sn_CR_CONNECT);
     }
     (void)wizchip_get_timeout_config(&timeout_config);
-    deadline_abs = wizchip_deadline_abs(timeout_config.command_timeout_us);
-    if (deadline_abs == 0U) {
-        deadline_abs = _WIZCHIP_POLL_MAX_;
+    if (wizchip_deadline_config_valid() == 0) {
+        ret = SOCKERR_TIMEOUT;
+        goto conn_done;
     }
+    deadline_abs = wizchip_deadline_abs(timeout_config.command_timeout_us);
     ret = wait_cr_accepted(sn, deadline_abs);
     if (ret != SOCK_OK) {
         goto conn_done;
     }
 
     deadline_abs = wizchip_deadline_abs(timeout_config.operation_timeout_us);
-    if (deadline_abs == 0U) {
-        deadline_abs = _WIZCHIP_POLL_MAX_;
-    }
     while ((status = getSn_SR(sn)) != SOCK_ESTABLISHED) {
         if ((getSn_IR(sn) & Sn_IR_TIMEOUT) != 0U) {
             setSn_IR(sn, Sn_IR_TIMEOUT);
@@ -885,10 +898,11 @@ int8_t disconnect(uint8_t sn) {
         if (tmp == SOCK_ESTABLISHED || tmp == SOCK_CLOSE_WAIT) {
             setSn_CR(sn, Sn_CR_DISCON);
             (void)wizchip_get_timeout_config(&timeout_config);
-            deadline_abs = wizchip_deadline_abs(timeout_config.command_timeout_us);
-            if (deadline_abs == 0U) {
-                deadline_abs = _WIZCHIP_POLL_MAX_;
+            if (wizchip_deadline_config_valid() == 0) {
+                ret = SOCKERR_TIMEOUT;
+                goto disconn_done;
             }
+            deadline_abs = wizchip_deadline_abs(timeout_config.command_timeout_us);
             ret = wait_cr_accepted(sn, deadline_abs);
             if (ret != SOCK_OK) {
                 goto disconn_done;
@@ -896,10 +910,11 @@ int8_t disconnect(uint8_t sn) {
         }
         sock_is_sending[sn] = 0;
         (void)wizchip_get_timeout_config(&timeout_config);
-        deadline_abs = wizchip_deadline_abs(timeout_config.operation_timeout_us);
-        if (deadline_abs == 0U) {
-            deadline_abs = _WIZCHIP_POLL_MAX_;
+        if (wizchip_deadline_config_valid() == 0) {
+            ret = SOCKERR_TIMEOUT;
+            goto disconn_done;
         }
+        deadline_abs = wizchip_deadline_abs(timeout_config.operation_timeout_us);
         while (getSn_SR(sn) != SOCK_CLOSED) {
             if ((getSn_IR(sn) & Sn_IR_TIMEOUT) != 0U) {
                 setSn_IR(sn, Sn_IR_TIMEOUT);
@@ -947,6 +962,10 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
         goto send_done;
     }
     (void)wizchip_get_timeout_config(&timeout_config);
+    if (wizchip_deadline_config_valid() == 0) {
+        ret = SOCKERR_TIMEOUT;
+        goto send_done;
+    }
     /*
         The below codes can be omitted for optmization of speed
     */
@@ -965,9 +984,6 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
     if (sock_is_sending[sn]) {
         deadline_abs = wizchip_deadline_abs(
             timeout_config.operation_timeout_us);
-        if (deadline_abs == 0U) {
-            deadline_abs = _WIZCHIP_POLL_MAX_;
-        }
         wait_poll_init(&poll, deadline_abs);
         for (;;) {
             tmp = getSn_IR(sn);
@@ -980,9 +996,6 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
                     setSn_CR(sn, Sn_CR_SEND);
                     deadline_abs = wizchip_deadline_abs(
                         timeout_config.command_timeout_us);
-                    if (deadline_abs == 0U) {
-                        deadline_abs = _WIZCHIP_POLL_MAX_;
-                    }
                     ret = wait_cr_accepted(sn, deadline_abs);
                     if (ret != SOCK_OK) {
                         goto send_done;
@@ -1011,7 +1024,7 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
             if (wait_poll_expired(&poll, deadline_abs) ==
                 SOCKERR_DEADLINE) {
                 sock_health[sn] = SOCK_FAULTED;
-                ret = SOCKERR_DEADLINE; goto send_done;
+                ret = SOCKERR_TIMEOUT; goto send_done;
             }
         }
     }
@@ -1021,9 +1034,6 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
         len = freesize;    // check size not to exceed MAX size.
     }
     deadline_abs = wizchip_deadline_abs(timeout_config.operation_timeout_us);
-    if (deadline_abs == 0U) {
-        deadline_abs = _WIZCHIP_POLL_MAX_;
-    }
     wait_poll_init(&poll, deadline_abs);
     while (1) {
         ret = read_sn_tx_fsr(sn, &freesize);
@@ -1033,7 +1043,7 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
         tmp = getSn_SR(sn);
         if ((tmp != SOCK_ESTABLISHED) && (tmp != SOCK_CLOSE_WAIT)) {
             if (tmp == SOCK_CLOSED) {
-                (void)close_internal(sn, 1U);
+                (void)close_internal(sn, 1U, 0U);
                 ret = SOCKERR_SOCKSTATUS; goto send_done;
             }
             ret = SOCKERR_SOCKSTATUS; goto send_done;
@@ -1045,7 +1055,7 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
             break;
         }
         if (wait_poll_expired(&poll, deadline_abs) == SOCKERR_DEADLINE) {
-            ret = SOCKERR_DEADLINE; goto send_done;
+            ret = SOCKERR_TIMEOUT; goto send_done;
         }
     }
     wiz_send_data(sn, buf, len);
@@ -1062,9 +1072,6 @@ int32_t send(uint8_t sn, uint8_t * buf, uint16_t len) {
        point, confirmed by fourth-pass analysis. */
     setSn_CR(sn, Sn_CR_SEND);
     deadline_abs = wizchip_deadline_abs(timeout_config.command_timeout_us);
-    if (deadline_abs == 0U) {
-        deadline_abs = _WIZCHIP_POLL_MAX_;
-    }
     ret = wait_cr_accepted(sn, deadline_abs);
     if (ret != SOCK_OK) {
         sock_health[sn] = SOCK_FAULTED;
@@ -1104,6 +1111,10 @@ int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len) { //lihan
         goto recv_done;
     }
     (void)wizchip_get_timeout_config(&timeout_config);
+    if (wizchip_deadline_config_valid() == 0) {
+        ret = SOCKERR_TIMEOUT;
+        goto recv_done;
+    }
     /*
         The below codes can be omitted for optmization of speed
     */
@@ -1131,9 +1142,6 @@ int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len) { //lihan
         //
         deadline_abs = wizchip_deadline_abs(
             timeout_config.operation_timeout_us);
-        if (deadline_abs == 0U) {
-            deadline_abs = _WIZCHIP_POLL_MAX_;
-        }
         wait_poll_init(&poll, deadline_abs);
         while (1) {
             ret = read_sn_rx_rsr(sn, &recvsize);
@@ -1152,17 +1160,17 @@ int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len) { //lihan
                             goto recv_done;
                         }
                         if (freesize == wizchip_txmax_cache[sn]) {
-                            (void)close_internal(sn, 1U);
+                            (void)close_internal(sn, 1U, 0U);
                             ret = SOCKERR_SOCKSTATUS; goto recv_done;
                         }
                     }
                     if (wait_poll_expired(&poll, deadline_abs) ==
                         SOCKERR_DEADLINE) {
-                        ret = SOCKERR_DEADLINE; goto recv_done;
+                        ret = SOCKERR_TIMEOUT; goto recv_done;
                     }
                     continue;
                 } else {
-                    (void)close_internal(sn, 1U);
+                    (void)close_internal(sn, 1U, 0U);
                     ret = SOCKERR_SOCKSTATUS; goto recv_done;
                 }
             }
@@ -1183,7 +1191,7 @@ int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len) { //lihan
 #endif
             if (wait_poll_expired(&poll, deadline_abs) ==
                 SOCKERR_DEADLINE) {
-                ret = SOCKERR_DEADLINE; goto recv_done;
+                ret = SOCKERR_TIMEOUT; goto recv_done;
             }
         };
 #if _WIZCHIP_ == 5300
@@ -1221,9 +1229,6 @@ int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len) { //lihan
         setSn_CR(sn, Sn_CR_RECV);
         deadline_abs = wizchip_deadline_abs(
             timeout_config.command_timeout_us);
-        if (deadline_abs == 0U) {
-            deadline_abs = _WIZCHIP_POLL_MAX_;
-        }
         ret = wait_cr_accepted(sn, deadline_abs);
         if (ret != SOCK_OK) {
             sock_health[sn] = SOCK_FAULTED;
@@ -1250,9 +1255,6 @@ int32_t recv(uint8_t sn, uint8_t * buf, uint16_t len) { //lihan
     wiz_recv_data(sn, buf, len);
     setSn_CR(sn, Sn_CR_RECV);
     deadline_abs = wizchip_deadline_abs(timeout_config.command_timeout_us);
-    if (deadline_abs == 0U) {
-        deadline_abs = _WIZCHIP_POLL_MAX_;
-    }
     ret = wait_cr_accepted(sn, deadline_abs);
     if (ret != SOCK_OK) {
         sock_health[sn] = SOCK_FAULTED;
@@ -1328,6 +1330,10 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
         goto sndto_done;
     }
     (void)wizchip_get_timeout_config(&timeout_config);
+    if (wizchip_deadline_config_valid() == 0) {
+        ret = SOCKERR_TIMEOUT;
+        goto sndto_done;
+    }
     nonblocking = sock_io_mode[sn];
 
     /*
@@ -1416,9 +1422,6 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
     if (is_macraw == 0U) {
         deadline_abs = wizchip_deadline_abs(
             timeout_config.operation_timeout_us);
-        if (deadline_abs == 0U) {
-            deadline_abs = _WIZCHIP_POLL_MAX_;
-        }
         wait_poll_init(&poll, deadline_abs);
         for (;;) {
             ret = read_sn_tx_fsr(sn, &freesize);
@@ -1436,7 +1439,7 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
             }
             if (wait_poll_expired(&poll, deadline_abs) ==
                 SOCKERR_DEADLINE) {
-                ret = SOCKERR_DEADLINE; goto sndto_done;
+                ret = SOCKERR_TIMEOUT; goto sndto_done;
             }
         }
     } else if (getSn_SR(sn) == SOCK_CLOSED) {
@@ -1471,9 +1474,6 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
     }
 
     deadline_abs = wizchip_deadline_abs(timeout_config.operation_timeout_us);
-    if (deadline_abs == 0U) {
-        deadline_abs = _WIZCHIP_POLL_MAX_;
-    }
     wait_poll_init(&poll, deadline_abs);
     for (;;) {
         tmp = getSn_IR(sn);
@@ -1500,7 +1500,7 @@ static int32_t sendto_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * ad
         }
         if (wait_poll_expired(&poll, deadline_abs) == SOCKERR_DEADLINE) {
             sock_health[sn] = SOCK_FAULTED;
-            ret = SOCKERR_DEADLINE; goto sndto_done;
+            ret = SOCKERR_TIMEOUT; goto sndto_done;
         }
         ////////////
     }
@@ -1579,6 +1579,10 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
         goto rcvfr_done;
     }
     (void)wizchip_get_timeout_config(&timeout_config);
+    if (wizchip_deadline_config_valid() == 0) {
+        ret = SOCKERR_TIMEOUT;
+        goto rcvfr_done;
+    }
     nonblocking = sock_io_mode[sn];
 
     /*
@@ -1608,9 +1612,6 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
     if (sock_remained_size[sn] == 0) {
         deadline_abs = wizchip_deadline_abs(
             timeout_config.operation_timeout_us);
-        if (deadline_abs == 0U) {
-            deadline_abs = _WIZCHIP_POLL_MAX_;
-        }
         wait_poll_init(&poll, deadline_abs);
         for (;;) {
             ret = read_sn_rx_rsr(sn, &pack_len);
@@ -1635,7 +1636,7 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
             }
             if (wait_poll_expired(&poll, deadline_abs) ==
                 SOCKERR_DEADLINE) {
-                ret = SOCKERR_DEADLINE; goto rcvfr_done;
+                ret = SOCKERR_TIMEOUT; goto rcvfr_done;
             }
         }
     }
@@ -1762,7 +1763,7 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
                 sock_remained_size[sn] = head[0];
                 pkt_len = ((uint16_t)sock_remained_size[sn] << 8) | head[1];
                 if (pkt_len < 2u) {
-                    (void)close_internal(sn, 1U);
+                    (void)close_internal(sn, 1U, 0U);
                     ret = SOCKFATAL_PACKLEN; goto rcvfr_done;
                 }
                 sock_remained_size[sn] = pkt_len - 2u;
@@ -1775,7 +1776,7 @@ static int32_t recvfrom_IO_6(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * 
             }
 #endif
             if (sock_remained_size[sn] > 1514) {
-                (void)close_internal(sn, 1U);
+                (void)close_internal(sn, 1U, 0U);
                 ret = SOCKFATAL_PACKLEN; goto rcvfr_done;
             }
             sock_pack_info[sn] = PACK_FIRST;
@@ -2059,11 +2060,12 @@ int8_t  setsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
         }
 #endif
         (void)wizchip_get_timeout_config(&timeout_config);
+        if (wizchip_deadline_config_valid() == 0) {
+            ret = SOCKERR_TIMEOUT;
+            goto ss_done;
+        }
         deadline_abs = wizchip_deadline_abs(
             timeout_config.command_timeout_us);
-        if (deadline_abs == 0U) {
-            deadline_abs = _WIZCHIP_POLL_MAX_;
-        }
         wait_poll_init(&poll, deadline_abs);
         setSn_CR(sn, Sn_CR_SEND_KEEP);
         while (getSn_CR(sn) != 0) {
@@ -2076,7 +2078,7 @@ int8_t  setsockopt(uint8_t sn, sockopt_type sotype, void* arg) {
             if (wait_poll_expired(&poll, deadline_abs) ==
                 SOCKERR_DEADLINE) {
                 sock_health[sn] = SOCK_FAULTED;
-                ret = SOCKERR_DEADLINE; goto ss_done;
+                ret = SOCKERR_TIMEOUT; goto ss_done;
             }
         }
         break;
